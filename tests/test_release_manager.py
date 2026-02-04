@@ -148,3 +148,115 @@ class TestReleaseManager:
                     manager.release(test_file)
 
             mock_connection.assert_called_once()
+
+    def test_release_version_exists_aborted(self, tmp_path: Path) -> None:
+        """Test release aborts when version exists and user declines overwrite."""
+        config = ReleaseConfig(
+            ftp=FTPConfig(
+                host="ftp.example.com",
+                port=21,
+                username="testuser",
+                password="testpass",
+                remote_path="/releases",
+            ),
+            old_file=OldFileConfig(
+                policy=OldFilePolicy.RENAME,
+                subfolder_base="old_versions",
+                subfolder_naming=SubfolderNaming.VERSION,
+            ),
+        )
+        test_file = tmp_path / "test.exe"
+        test_file.write_bytes(b"content")
+
+        manager = ReleaseManager(config, version="1.0.0")
+
+        with patch.object(manager.client, "connection") as mock_connection:
+            mock_cm = MagicMock()
+            mock_connection.return_value.__enter__ = MagicMock(return_value=mock_cm)
+            mock_connection.return_value.__exit__ = MagicMock(return_value=False)
+
+            with patch.object(
+                manager.client, "directory_exists", return_value=True
+            ):
+                with patch("builtins.input", return_value="n"):
+                    result = manager.release(test_file)
+
+        assert result is False
+
+    def test_release_version_exists_overwrite(self, tmp_path: Path) -> None:
+        """Test release continues when version exists and user confirms overwrite."""
+        config = ReleaseConfig(
+            ftp=FTPConfig(
+                host="ftp.example.com",
+                port=21,
+                username="testuser",
+                password="testpass",
+                remote_path="/releases",
+            ),
+            old_file=OldFileConfig(
+                policy=OldFilePolicy.RENAME,
+                subfolder_base="old_versions",
+                subfolder_naming=SubfolderNaming.VERSION,
+            ),
+        )
+        test_file = tmp_path / "test.exe"
+        test_file.write_bytes(b"content")
+
+        manager = ReleaseManager(config, version="1.0.0")
+
+        with patch.object(manager.client, "connection") as mock_connection:
+            mock_cm = MagicMock()
+            mock_connection.return_value.__enter__ = MagicMock(return_value=mock_cm)
+            mock_connection.return_value.__exit__ = MagicMock(return_value=False)
+
+            with patch.object(
+                manager.client, "directory_exists", return_value=True
+            ):
+                with patch("builtins.input", return_value="y"):
+                    with patch.object(
+                        manager.client, "file_exists", return_value=False
+                    ):
+                        with patch.object(manager.client, "upload_file"):
+                            result = manager.release(test_file)
+
+        assert result is True
+
+    def test_release_version_not_exists_no_prompt(self, tmp_path: Path) -> None:
+        """Test release proceeds without prompt when version doesn't exist."""
+        config = ReleaseConfig(
+            ftp=FTPConfig(
+                host="ftp.example.com",
+                port=21,
+                username="testuser",
+                password="testpass",
+                remote_path="/releases",
+            ),
+            old_file=OldFileConfig(
+                policy=OldFilePolicy.RENAME,
+                subfolder_base="old_versions",
+                subfolder_naming=SubfolderNaming.VERSION,
+            ),
+        )
+        test_file = tmp_path / "test.exe"
+        test_file.write_bytes(b"content")
+
+        manager = ReleaseManager(config, version="2.0.0")
+
+        with patch.object(manager.client, "connection") as mock_connection:
+            mock_cm = MagicMock()
+            mock_connection.return_value.__enter__ = MagicMock(return_value=mock_cm)
+            mock_connection.return_value.__exit__ = MagicMock(return_value=False)
+
+            with patch.object(
+                manager.client, "directory_exists", return_value=False
+            ):
+                with patch("builtins.input") as mock_input:
+                    with patch.object(
+                        manager.client, "file_exists", return_value=False
+                    ):
+                        with patch.object(manager.client, "upload_file"):
+                            result = manager.release(test_file)
+
+                    mock_input.assert_not_called()
+
+        assert result is True

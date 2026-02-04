@@ -135,6 +135,19 @@ class FTPClient:
             except ftplib.error_perm as e:
                 logger.debug(f"Directory already exists or error: {current_dir} ({e})")
 
+    def directory_exists(self, path: str) -> bool:
+        """Check if directory exists on remote."""
+        if not self._ftp:
+            raise FTPError("Not connected to FTP server")
+
+        original_dir = self._ftp.pwd()
+        try:
+            self._ftp.cwd(path)
+            self._ftp.cwd(original_dir)
+            return True
+        except ftplib.error_perm:
+            return False
+
     def upload_file(self, local_path: Path) -> str:
         """Upload a file to the current remote directory."""
         if not self._ftp:

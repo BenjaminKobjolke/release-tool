@@ -218,3 +218,33 @@ class TestFTPClient:
             client.connect()
             with pytest.raises(FTPError, match="Failed to upload"):
                 client.upload_file(test_file)
+
+    def test_directory_exists_true(self, client: FTPClient) -> None:
+        """Test directory_exists returns True when directory exists."""
+        mock_ftp = MagicMock(spec=RealFTP)
+        mock_ftp.pwd.return_value = "/releases"
+
+        with patch("release_tool.ftp_client.ftplib.FTP", return_value=mock_ftp):
+            client.connect()
+            result = client.directory_exists("old_versions/1.0.0")
+
+            assert result is True
+            mock_ftp.cwd.assert_any_call("old_versions/1.0.0")
+
+    def test_directory_exists_false(self, client: FTPClient) -> None:
+        """Test directory_exists returns False when directory doesn't exist."""
+        mock_ftp = MagicMock(spec=RealFTP)
+        mock_ftp.pwd.return_value = "/releases"
+        mock_ftp.cwd.side_effect = [None, ftplib.error_perm("No such directory")]
+
+        with patch("release_tool.ftp_client.ftplib.FTP", return_value=mock_ftp):
+            client.connect()
+            mock_ftp.cwd.side_effect = ftplib.error_perm("No such directory")
+            result = client.directory_exists("old_versions/2.0.0")
+
+            assert result is False
+
+    def test_directory_exists_not_connected(self, client: FTPClient) -> None:
+        """Test directory_exists raises error when not connected."""
+        with pytest.raises(FTPError, match="Not connected"):
+            client.directory_exists("old_versions/1.0.0")

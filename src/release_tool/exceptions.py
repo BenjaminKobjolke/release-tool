@@ -11,3 +11,11 @@ class ConfigurationError(ReleaseToolError):
 
 class FTPError(ReleaseToolError):
     """Raised when FTP operations fail."""
+
+
+class PreSignError(ReleaseToolError):
+    """Raised when pre-signing operations fail."""
+
+
+class VersionExistsError(ReleaseToolError):
+    """Raised when backup version folder already exists on remote."""
