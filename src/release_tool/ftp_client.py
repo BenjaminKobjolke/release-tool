@@ -123,6 +123,14 @@ class FTPClient:
             raise FTPError("Not connected to FTP server")
 
         logger.debug(f"ensure_directory called with path: {path}")
+
+        # For absolute paths (starting with /), work from root
+        is_absolute = path.startswith("/")
+        if is_absolute:
+            original_dir = self._ftp.pwd()
+            self._ftp.cwd("/")
+            logger.debug(f"Changed to root for absolute path creation")
+
         dirs = path.strip("/").split("/")
         logger.debug(f"Path components: {dirs}")
         current_dir = ""
@@ -134,6 +142,10 @@ class FTPClient:
                 logger.debug(f"Created directory: {current_dir}")
             except ftplib.error_perm as e:
                 logger.debug(f"Directory already exists or error: {current_dir} ({e})")
+
+        if is_absolute:
+            self._ftp.cwd(original_dir)
+            logger.debug(f"Restored directory to: {original_dir}")
 
     def directory_exists(self, path: str) -> bool:
         """Check if directory exists on remote."""
@@ -164,3 +176,37 @@ class FTPClient:
         except (ftplib.Error, OSError, EOFError) as e:
             logger.debug(f"Upload failed: {e}")
             raise FTPError(f"Failed to upload {filename}: {e}") from e
+
+    def change_directory(self, path: str) -> None:
+        """Navigate to an absolute path on the FTP server."""
+        if not self._ftp:
+            raise FTPError("Not connected to FTP server")
+
+        try:
+            self._ftp.cwd(path)
+            logger.debug(f"Changed directory to: {path}")
+        except ftplib.error_perm as e:
+            raise FTPError(f"Failed to change to directory {path}: {e}") from e
+
+    def list_directories(self) -> list[str]:
+        """List subdirectories in the current directory."""
+        if not self._ftp:
+            raise FTPError("Not connected to FTP server")
+
+        directories = []
+        try:
+            items = self._ftp.nlst()
+            for item in items:
+                # Check if item is a directory by trying to change into it
+                original_dir = self._ftp.pwd()
+                try:
+                    self._ftp.cwd(item)
+                    directories.append(item)
+                    self._ftp.cwd(original_dir)
+                except ftplib.error_perm:
+                    # Not a directory, skip
+                    pass
+            logger.debug(f"Listed directories: {directories}")
+            return directories
+        except ftplib.error_perm as e:
+            raise FTPError(f"Failed to list directories: {e}") from e

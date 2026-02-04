@@ -9,6 +9,14 @@ from .exceptions import ConfigurationError
 from .pre_signer import PreSignConfig
 
 
+@dataclass
+class ReleaseNotesConfig:
+    """Configuration for release notes upload."""
+
+    path: str  # Local path to release notes folder
+    remote_path: str  # FTP remote path for release notes
+
+
 class OldFilePolicy(Enum):
     """Policy for handling existing files on remote."""
 
@@ -50,6 +58,7 @@ class ReleaseConfig:
     ftp: FTPConfig
     old_file: OldFileConfig
     pre_sign: PreSignConfig | None = None
+    release_notes: ReleaseNotesConfig | None = None
 
     @classmethod
     def from_ini_file(cls, path: Path) -> "ReleaseConfig":
@@ -144,4 +153,25 @@ class ReleaseConfig:
                         f"Invalid PreSigning configuration: {e}"
                     ) from e
 
-        return cls(ftp=ftp_config, old_file=old_file_config, pre_sign=pre_sign_config)
+        # Parse ReleaseNotes section (optional)
+        release_notes_config = None
+        if "ReleaseNotes" in parser:
+            release_notes_section = parser["ReleaseNotes"]
+            path = release_notes_section.get("path", "")
+            remote_path = release_notes_section.get("remote_path", "")
+            if path and remote_path:
+                release_notes_config = ReleaseNotesConfig(
+                    path=path,
+                    remote_path=remote_path,
+                )
+            elif path or remote_path:
+                raise ConfigurationError(
+                    "ReleaseNotes requires both 'path' and 'remote_path'"
+                )
+
+        return cls(
+            ftp=ftp_config,
+            old_file=old_file_config,
+            pre_sign=pre_sign_config,
+            release_notes=release_notes_config,
+        )

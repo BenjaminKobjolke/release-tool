@@ -7,6 +7,7 @@ from .config import OldFilePolicy, ReleaseConfig
 from .ftp_client import FTPClient
 from .old_file_handler import create_handler
 from .pre_signer import PreSigner
+from .release_notes_uploader import ReleaseNotesUploader
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,15 @@ class ReleaseManager:
         if self.version:
             logger.info(f"[DRY RUN] Version for backup: {self.version}")
         logger.info(f"[DRY RUN] Would upload {file_path}")
+
+        if self.config.release_notes:
+            uploader = ReleaseNotesUploader(
+                config=self.config.release_notes,
+                client=self.client,
+                dry_run=True,
+            )
+            uploader.upload()
+
         logger.info("[DRY RUN] Would disconnect from FTP server")
         return True
 
@@ -124,5 +134,14 @@ class ReleaseManager:
 
             self.client.upload_file(file_path)
             logger.info(f"Successfully released {filename}")
+
+            # Upload release notes if configured
+            if self.config.release_notes:
+                uploader = ReleaseNotesUploader(
+                    config=self.config.release_notes,
+                    client=self.client,
+                    dry_run=False,
+                )
+                uploader.upload()
 
         return True
