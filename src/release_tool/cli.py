@@ -39,10 +39,10 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--version",
-        "-v",
+        "--previous-version",
+        "-p",
         dest="version",
-        help="Previous version for backup naming",
+        help="Previous version string for backup folder naming (e.g., '1.0.0')",
     )
 
     parser.add_argument(

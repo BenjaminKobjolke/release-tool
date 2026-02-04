@@ -27,7 +27,7 @@ class TestParseArgs:
         args = parse_args([
             "app.zip",
             "release.ini",
-            "--version", "1.2.3",
+            "--previous-version", "1.2.3",
             "--dry-run",
             "--verbose",
         ])
@@ -38,9 +38,9 @@ class TestParseArgs:
         assert args.dry_run is True
         assert args.verbose is True
 
-    def test_parse_version_short_flag(self) -> None:
-        """Test parsing version with short flag."""
-        args = parse_args(["test.exe", "config.ini", "-v", "2.0.0"])
+    def test_parse_previous_version_short_flag(self) -> None:
+        """Test parsing previous-version with short flag."""
+        args = parse_args(["test.exe", "config.ini", "-p", "2.0.0"])
 
         assert args.version == "2.0.0"
 
