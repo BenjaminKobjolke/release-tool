@@ -60,9 +60,16 @@ class ReleaseManager:
         filename = file_path.name
 
         with self.client.connection():
+            logger.debug(f"Checking if file exists on remote: {filename}")
             if self.client.file_exists(filename):
                 logger.info(f"Existing file found: {filename}")
+                logger.debug(
+                    f"Calling old file handler: {type(self.old_file_handler).__name__}"
+                )
+                logger.debug(f"Version parameter: {self.version}")
                 self.old_file_handler.handle(self.client, filename, self.version)
+            else:
+                logger.debug(f"No existing file found on remote: {filename}")
 
             self.client.upload_file(file_path)
             logger.info(f"Successfully released {filename}")
