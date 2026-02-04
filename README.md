@@ -20,9 +20,17 @@ release-tool myapp.zip config.ini --version 1.9.5
 # Preview without changes
 release-tool dist/app.exe release.ini --dry-run
 
-# Verbose output
+# Verbose output (debug logging)
 release-tool myapp.exe config.ini --verbose
 ```
+
+## Options
+
+| Option | Description |
+|--------|-------------|
+| `--version`, `-v` | Version string for backup naming (used with `subfolder_naming = version`) |
+| `--dry-run` | Preview changes without uploading or modifying files |
+| `--verbose` | Enable debug logging to trace FTP operations, file checks, and directory creation |
 
 ## Configuration
 
