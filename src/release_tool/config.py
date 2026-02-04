@@ -6,6 +6,7 @@ from enum import Enum
 from pathlib import Path
 
 from .exceptions import ConfigurationError
+from .pre_signer import PreSignConfig
 
 
 class OldFilePolicy(Enum):
@@ -48,6 +49,7 @@ class ReleaseConfig:
 
     ftp: FTPConfig
     old_file: OldFileConfig
+    pre_sign: PreSignConfig | None = None
 
     @classmethod
     def from_ini_file(cls, path: Path) -> "ReleaseConfig":
@@ -107,4 +109,39 @@ class ReleaseConfig:
             subfolder_naming=naming,
         )
 
-        return cls(ftp=ftp_config, old_file=old_file_config)
+        # Parse PreSigning section (optional)
+        pre_sign_config = None
+        if "PreSigning" in parser:
+            pre_sign_section = parser["PreSigning"]
+            enabled = pre_sign_section.getboolean("enabled", False)
+            if enabled:
+                network_path = pre_sign_section.get("network_path", "")
+                if not network_path:
+                    raise ConfigurationError(
+                        "PreSigning network_path is required when enabled"
+                    )
+                network_path_signed = pre_sign_section.get("network_path_signed", "")
+                if not network_path_signed:
+                    raise ConfigurationError(
+                        "PreSigning network_path_signed is required when enabled"
+                    )
+                expected_signer = pre_sign_section.get("expected_signer", "")
+                if not expected_signer:
+                    raise ConfigurationError(
+                        "PreSigning expected_signer is required when enabled"
+                    )
+                try:
+                    pre_sign_config = PreSignConfig(
+                        enabled=True,
+                        network_path=network_path,
+                        network_path_signed=network_path_signed,
+                        expected_signer=expected_signer,
+                        poll_interval=pre_sign_section.getint("poll_interval", 10),
+                        timeout=pre_sign_section.getint("timeout", 300),
+                    )
+                except ValueError as e:
+                    raise ConfigurationError(
+                        f"Invalid PreSigning configuration: {e}"
+                    ) from e
+
+        return cls(ftp=ftp_config, old_file=old_file_config, pre_sign=pre_sign_config)
