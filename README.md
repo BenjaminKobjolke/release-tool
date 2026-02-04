@@ -65,6 +65,12 @@ expected_signer = Your Company Name
 poll_interval = 10
 ; Timeout in seconds (default: 300 = 5 minutes)
 timeout = 300
+
+[ReleaseNotes]
+; Local path to release notes folder containing version subfolders (e.g., 1.0.0/, 1.0.1/)
+path = D:/Projects/MyApp/release_notes
+; Remote FTP path where release notes should be uploaded
+remote_path = /public/sites/myapp/release_notes
 ```
 
 ### Pre-Signing Workflow
@@ -79,6 +85,17 @@ When `[PreSigning]` is enabled, the tool performs these steps before FTP upload:
 6. Proceeds with FTP upload
 
 This integrates with code signing services that monitor a network folder for files to sign and output signed files to a separate directory.
+
+### Release Notes Upload
+
+When `[ReleaseNotes]` is configured, the tool automatically uploads new release notes folders after the main file upload:
+
+1. Scans the local `path` for version folders (e.g., `1.0.0/`, `1.0.1/`)
+2. Compares against existing folders on the remote `remote_path`
+3. Uploads only new version folders and their contents
+4. Existing folders are skipped
+
+This allows you to maintain release notes locally and have them automatically synced during releases.
 
 ## Development
 
