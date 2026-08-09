@@ -206,3 +206,6 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 /.claude
+
+# Local planning notes
+claude-plans/
