@@ -115,6 +115,12 @@ def parse_create_args(args: list[str]) -> argparse.Namespace:
         help="Path to the create config INI (default: release_create.ini in the cwd)",
     )
     parser.add_argument(
+        "--project-root",
+        type=Path,
+        default=None,
+        help="Project root the bats/notes resolve against (default: cwd)",
+    )
+    parser.add_argument(
         "--internal",
         action="store_true",
         help="Internal test build: skip release notes, tag as INTERNAL",
@@ -142,7 +148,7 @@ def run_create(args: list[str]) -> int:
         config = CreateConfig.from_ini_file(parsed.config)
         creator = ReleaseCreator(
             config=config,
-            project_root=Path.cwd(),
+            project_root=(parsed.project_root or Path.cwd()).resolve(),
             dry_run=parsed.dry_run,
         )
         return creator.create(internal=parsed.internal)

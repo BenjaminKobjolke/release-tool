@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from release_tool.cli import main, parse_args, run
+from release_tool.cli import main, parse_args, parse_create_args, run
 from release_tool.exceptions import ConfigurationError, FTPError
 
 
@@ -43,6 +43,23 @@ class TestParseArgs:
         args = parse_args(["test.exe", "config.ini", "-p", "2.0.0"])
 
         assert args.version == "2.0.0"
+
+
+class TestParseCreateArgs:
+    """Tests for `create` subcommand argument parsing."""
+
+    def test_project_root_defaults_none(self) -> None:
+        """Without --project-root the flag is None (run_create falls back to cwd)."""
+        args = parse_create_args(["cfg.ini"])
+
+        assert args.config == Path("cfg.ini")
+        assert args.project_root is None
+
+    def test_project_root_flag(self) -> None:
+        """--project-root wires through as a Path."""
+        args = parse_create_args(["cfg.ini", "--project-root", "X"])
+
+        assert args.project_root == Path("X")
 
 
 class TestRun:

@@ -21,6 +21,9 @@ release-tool create
 # Point at a specific config (default: release_create.ini in the cwd)
 release-tool create release_create.ini
 
+# Run from elsewhere: config path + explicit project root (see "Launcher bat")
+release-tool create path\to\tools\release_create.ini --project-root path\to\project
+
 # Internal test build: skip release notes, tag as INTERNAL
 release-tool create --internal
 
@@ -34,6 +37,7 @@ release-tool create --verbose
 | Argument | Description |
 |---|---|
 | `config` (positional) | Path to the create config INI. Default: `release_create.ini` in the cwd. |
+| `--project-root` | Root the `[Bats]` paths and `notes_dir` resolve against. Default: the cwd. Set it when running from another directory (e.g. the launcher bat cd's into the release-tool repo). |
 | `--internal` | Internal test build: skip release notes, commit/tag as `INTERNAL`. |
 | `--dry-run` | Print the resolved label and the exact commands without running the mutating ones. |
 | `--verbose` | Enable debug logging. |
@@ -66,9 +70,15 @@ release-tool create --verbose
 
 ## Configuration — `release_create.ini`
 
-Placed at the project root (the default path `create` reads). Set only what
-differs from the conventional defaults; everything else falls back. See
-`examples/release_create.ini`.
+Per project the config lives in the project's `tools/` folder alongside a
+launcher bat (see "Setup per project"). Set only what differs from the
+conventional defaults; everything else falls back. The `[Bats]` paths and
+`notes_dir` are always relative to the **project root** (`--project-root`), not
+to the config's own folder. See `examples/release_create.ini`.
+
+(When the config sits at the project root and you run `create` from there, the
+default cwd is the project root, so no `--project-root` is needed — the legacy
+layout still works.)
 
 ```ini
 [Release]
@@ -115,9 +125,28 @@ publish = tools/publish_release.bat
 
 ## Setup per project
 
-Use the `/release:setup-automated-script` command to generate a project's
-`release_create.ini`: it reads the project's `docs/CREATE_NEW_RELEASE.md`, discovers
-its `tools/*.bat`, writes a minimal config, and verifies it with a `--dry-run`.
+Use the `/release:setup-automated-script` command to wire a project up: it reads
+the project's `docs/CREATE_NEW_RELEASE.md`, discovers its `tools/*.bat`, and writes
+**two** files into the project's `tools/` folder:
+
+1. `tools/release_create.ini` — the minimal config above.
+2. `tools/release_create.bat` — a launcher that runs the full release. It cd's
+   into the release-tool repo (so `uv run` resolves this tool's venv — it is not
+   on `PATH`), then calls `create` pointed back at the project:
+
+   ```bat
+   @echo off
+   cd /d D:\GIT\BenjaminKobjolke\release-tool
+   call uv run python -m release_tool create "%~dp0release_create.ini" --project-root "%~dp0.." %*
+   cd /d "%~dp0"
+   ```
+
+   `%~dp0` is the bat's own folder (`…\tools\`), so `"%~dp0release_create.ini"`
+   is the config and `"%~dp0.."` is the project root. `%*` forwards
+   `--internal` / `--dry-run`. See `examples/release_create.bat`.
+
+Then the one-command release is `tools\release_create.bat` (add `--internal` for
+an internal test build), verified with `tools\release_create.bat --dry-run`.
 
 ## Requirements
 
