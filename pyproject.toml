@@ -32,6 +32,7 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/release_tool/config.py" = ["SIM401"]  # ConfigParser.get() has different signature
+"src/release_tool/create_config.py" = ["SIM401"]  # ConfigParser.get() has different signature
 
 [tool.mypy]
 python_version = "3.10"

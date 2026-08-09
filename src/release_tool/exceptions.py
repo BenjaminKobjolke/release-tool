@@ -19,3 +19,7 @@ class PreSignError(ReleaseToolError):
 
 class VersionExistsError(ReleaseToolError):
     """Raised when backup version folder already exists on remote."""
+
+
+class ReleaseCreateError(ReleaseToolError):
+    """Raised when a step of the `create` (full-release) workflow fails."""
