@@ -11,6 +11,11 @@ from .exceptions import PreSignError
 
 logger = logging.getLogger(__name__)
 
+# Copy-back retry: the local exe can be briefly locked (antivirus scan /
+# lingering handle) right after signing. Retry over the transient lock.
+_COPY_RETRIES = 5
+_COPY_RETRY_DELAY = 2
+
 
 @dataclass
 class PreSignConfig:
@@ -139,20 +144,39 @@ class PreSigner:
     def _move_back(
         self, signed_file: Path, unsigned_network_file: Path, original_path: Path
     ) -> None:
-        """Move signed file back to original location and clean up."""
+        """Copy signed file back over original, then clean up the server."""
         logger.debug(f"Moving {signed_file} back to {original_path}")
 
-        try:
-            # Copy signed file over original (avoids permission issues with unlink)
-            shutil.copy2(signed_file, original_path)
-            # Remove the signed file from signed directory
-            signed_file.unlink()
-            logger.debug(f"Removed signed file from: {signed_file}")
-            # Remove the original unsigned file from network path
-            if unsigned_network_file.exists():
-                unsigned_network_file.unlink()
-                logger.debug(f"Removed unsigned file from: {unsigned_network_file}")
-        except OSError as e:
-            raise PreSignError(f"Failed to move signed file back: {e}") from e
+        # Copy signed file over original, retrying over transient locks
+        # (avoids permission issues with unlink). Hard fail if it never clears.
+        for attempt in range(1, _COPY_RETRIES + 1):
+            try:
+                shutil.copy2(signed_file, original_path)
+                break
+            except OSError as e:
+                if attempt == _COPY_RETRIES:
+                    raise PreSignError(
+                        f"Failed to copy signed file back: {e}"
+                    ) from e
+                logger.warning(
+                    f"Copy-back failed (attempt {attempt}/{_COPY_RETRIES}), "
+                    f"file may be locked; retrying in {_COPY_RETRY_DELAY}s: {e}"
+                )
+                time.sleep(_COPY_RETRY_DELAY)
 
         logger.info(f"Moved signed file back to: {original_path}")
+
+        # Best-effort cleanup of the network share: warn on failure, never abort.
+        self._cleanup_server(signed_file, unsigned_network_file)
+
+    def _cleanup_server(
+        self, signed_file: Path, unsigned_network_file: Path
+    ) -> None:
+        """Delete signed + unsigned copies from the network share, best-effort."""
+        for path in (signed_file, unsigned_network_file):
+            try:
+                if path.exists():
+                    path.unlink()
+                    logger.debug(f"Removed file from server: {path}")
+            except OSError as e:
+                logger.warning(f"Failed to delete file from server {path}: {e}")
