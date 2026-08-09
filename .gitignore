@@ -1,3 +1,7 @@
+# graphify knowledge graph output
+graphify-out/
+src/graphify-out/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
