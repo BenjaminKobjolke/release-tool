@@ -1,6 +1,7 @@
 # Release Tool
 
-CLI tool for releasing software via FTP.
+CLI tool for releasing software via FTP, plus a `create` subcommand that runs a
+project's whole release in one command.
 
 ## Installation
 
@@ -97,11 +98,70 @@ When `[ReleaseNotes]` is configured, the tool automatically uploads new release 
 
 This allows you to maintain release notes locally and have them automatically synced during releases.
 
+## Create a release (`create` subcommand)
+
+The `create` subcommand orchestrates a full release for a project by sequencing
+that project's existing batch files, git, and (only when release notes are
+missing) a headless Codex call. Run it from the project root:
+
+```bash
+# End-user release: label, notes, build, translate, publish prompt, commit, tag
+release-tool create
+
+# Point at a specific config (default: release_create.ini in the cwd)
+release-tool create release_create.ini
+
+# Internal test build: skip release notes, tag as INTERNAL
+release-tool create --internal
+
+# Preview the resolved label and every command without executing anything
+release-tool create --dry-run
+```
+
+### What it does
+
+1. **Compute the next label** — `<version>_<build+1>` (build first, ship next).
+2. **Ensure release notes** (skipped with `--internal`) — if `en.json` is missing
+   for the shipping label, author it headlessly via
+   `codex exec --dangerously-bypass-approvals-and-sandbox`; abort if it still
+   doesn't appear.
+3. **Bump the build**, then **translate** (unless `english_only`), then **build**.
+   If build fails, the build counter is rolled back automatically.
+4. **Publish** — the single interactive gate. If a publish bat is configured you
+   are asked once (`Publish <label> to <platform>? [y/N]`). Decline, or configure
+   no publish bat, and it stops after the build (no commit, no tag).
+5. **Commit + tag** — `RELEASE (<scope>): <label>` (or `INTERNAL (...)`).
+
+### `release_create.ini`
+
+Only per-project differences need to be set; everything else uses conventional
+defaults (see `examples/release_create.ini`):
+
+```ini
+[Release]
+scope = app                          ; commit scope
+publish_platform = Google Play Store ; named in the publish prompt
+; notes_dir = release_notes          ; optional overrides shown with defaults
+; en_file = en.json
+; label_format = {version}_{build}
+; english_only = false
+
+[Bats]
+; All paths relative to the project root; omit a line to keep the default.
+; version_get / build_get / build_increment / build_decrement / translate / build
+; publish has NO default — set it to enable publish + commit + tag, omit to build-and-stop.
+publish = tools/publish_release.bat
+```
+
+The legacy publish invocation (`release-tool <file> <config> ...`) is unchanged
+and continues to work exactly as before.
+
 ## Development
 
 Run tests:
 ```bash
-tools\tests.bat
+tools\run_tests.bat              # unit tests
+tools\run_integration_tests.bat  # integration tests (Windows: exercises .bat calls)
 ```
 
 ## License
