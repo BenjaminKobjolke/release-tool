@@ -14,6 +14,7 @@ def make_config(
     *,
     publish: str | None = "tools/publish.bat",
     english_only: bool = False,
+    versioning: str = "build",
 ) -> CreateConfig:
     bats = BatsConfig(
         version_get="tools/version_get.bat",
@@ -30,6 +31,8 @@ def make_config(
         notes_dir="release_notes",
         en_file="en.json",
         label_format="{version}_{build}",
+        versioning=versioning,
+        previous_version_file="tools/previous_version.txt",
         english_only=english_only,
         bats=bats,
     )
@@ -61,28 +64,71 @@ class TestComputeLabel:
     def test_bare_version(self, mock_capture: MagicMock, tmp_path: Path) -> None:
         label_capture(mock_capture)
         creator = ReleaseCreator(make_config(), tmp_path, dry_run=True)
-        assert creator._compute_label() == "1.0.0_22"
+        labels = creator._compute_labels()
+        assert labels.shipping == "1.0.0_22"
+        assert labels.previous == "1.0.0_21"
 
     @patch("release_tool.release_creator.capture_command")
     def test_full_label_version(self, mock_capture: MagicMock, tmp_path: Path) -> None:
         """version_get printing a full label is trimmed to the bare version."""
         mock_capture.side_effect = ["1.0.0_21", "21"]
         creator = ReleaseCreator(make_config(), tmp_path, dry_run=True)
-        assert creator._compute_label() == "1.0.0_22"
+        assert creator._compute_labels().shipping == "1.0.0_22"
 
     @patch("release_tool.release_creator.capture_command")
     def test_non_integer_build_raises(self, mock_capture: MagicMock, tmp_path: Path) -> None:
         mock_capture.side_effect = ["1.0.0", "not-a-number"]
         creator = ReleaseCreator(make_config(), tmp_path, dry_run=True)
         with pytest.raises(ReleaseCreateError, match="non-integer build"):
-            creator._compute_label()
+            creator._compute_labels()
 
     @patch("release_tool.release_creator.capture_command")
     def test_empty_version_raises(self, mock_capture: MagicMock, tmp_path: Path) -> None:
         mock_capture.side_effect = ["", "21"]
         creator = ReleaseCreator(make_config(), tmp_path, dry_run=True)
         with pytest.raises(ReleaseCreateError, match="no version"):
-            creator._compute_label()
+            creator._compute_labels()
+
+
+class TestSemverLabels:
+    @patch("release_tool.release_creator.capture_command")
+    def test_semver_bumps_last_segment(self, mock_capture: MagicMock, tmp_path: Path) -> None:
+        mock_capture.side_effect = ["0.1.6"]  # build_get is never read in semver
+        creator = ReleaseCreator(make_config(versioning="semver"), tmp_path, dry_run=True)
+        labels = creator._compute_labels()
+        assert labels.previous == "0.1.6"
+        assert labels.shipping == "0.1.7"
+
+    @patch("release_tool.release_creator.capture_command")
+    def test_semver_non_numeric_last_segment_raises(
+        self, mock_capture: MagicMock, tmp_path: Path
+    ) -> None:
+        mock_capture.side_effect = ["0.1.x"]
+        creator = ReleaseCreator(make_config(versioning="semver"), tmp_path, dry_run=True)
+        with pytest.raises(ReleaseCreateError, match="non-numeric last segment"):
+            creator._compute_labels()
+
+    @patch("builtins.input", side_effect=["y", "n"])  # publish yes, commit no
+    @patch("release_tool.release_creator.run_command")
+    @patch("release_tool.release_creator.capture_command")
+    def test_semver_writes_previous_version_file(
+        self,
+        mock_capture: MagicMock,
+        mock_run: MagicMock,
+        mock_input: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        mock_capture.side_effect = ["0.1.6"]
+        prepare_notes(tmp_path, label="0.1.7")
+
+        creator = ReleaseCreator(make_config(versioning="semver"), tmp_path, dry_run=False)
+        creator.create(internal=False)
+
+        prev_file = tmp_path / "tools" / "previous_version.txt"
+        assert prev_file.read_text(encoding="utf-8").strip() == "0.1.6"
+        # publish bat takes no args now — it reads the file itself.
+        publish = next(c for c in ran(mock_run) if uses([c], "publish.bat"))
+        assert publish == ["cmd", "/c", "call", "tools\\publish.bat"]
 
 
 class TestCreateFlow:
@@ -102,7 +148,9 @@ class TestCreateFlow:
         assert uses(cmds, "translate.bat")
         assert uses(cmds, "build.bat")
         assert uses(cmds, "publish.bat")
-        assert uses(cmds, "git")  # commit + tag in dry-run assume publish
+        assert uses(cmds, "git")  # commit + tag + push in dry-run assume yes
+        assert ["git", "push"] in cmds  # push happens on commit
+        assert ["git", "push", "origin", "1.0.0_22"] in cmds
 
     @patch("release_tool.release_creator.run_command")
     @patch("release_tool.release_creator.capture_command")
@@ -160,10 +208,32 @@ class TestCreateFlow:
 
         assert uses(ran(mock_run), "build_decrement.bat")
 
-    @patch("builtins.input", return_value="n")
+    @patch("builtins.input", side_effect=["n", "y"])  # publish no, commit yes
     @patch("release_tool.release_creator.run_command")
     @patch("release_tool.release_creator.capture_command")
-    def test_publish_decline_skips_commit(
+    def test_publish_declined_still_commits(
+        self,
+        mock_capture: MagicMock,
+        mock_run: MagicMock,
+        mock_input: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Publish and commit are independent — declining publish still commits."""
+        label_capture(mock_capture)
+        prepare_notes(tmp_path)
+
+        creator = ReleaseCreator(make_config(), tmp_path, dry_run=False)
+        creator.create(internal=False)
+
+        cmds = ran(mock_run)
+        assert not uses(cmds, "publish.bat")
+        assert any(c[:2] == ["git", "commit"] for c in cmds)
+        assert ["git", "push"] in cmds
+
+    @patch("builtins.input", side_effect=["y", "n"])  # publish yes, commit no
+    @patch("release_tool.release_creator.run_command")
+    @patch("release_tool.release_creator.capture_command")
+    def test_commit_declined_still_publishes(
         self,
         mock_capture: MagicMock,
         mock_run: MagicMock,
@@ -177,20 +247,27 @@ class TestCreateFlow:
         creator.create(internal=False)
 
         cmds = ran(mock_run)
-        assert not uses(cmds, "publish.bat")
+        assert uses(cmds, "publish.bat")
         assert not uses(cmds, "git")
 
+    @patch("builtins.input", return_value="n")  # publish n/a, commit no
     @patch("release_tool.release_creator.run_command")
     @patch("release_tool.release_creator.capture_command")
-    def test_no_publish_bat_builds_and_stops(
-        self, mock_capture: MagicMock, mock_run: MagicMock, tmp_path: Path
+    def test_no_publish_bat_skips_publish_only(
+        self,
+        mock_capture: MagicMock,
+        mock_run: MagicMock,
+        mock_input: MagicMock,
+        tmp_path: Path,
     ) -> None:
+        """No publish bat skips only the publish step; commit is still offered."""
         label_capture(mock_capture)
         prepare_notes(tmp_path)
 
-        creator = ReleaseCreator(make_config(publish=None), tmp_path, dry_run=True)
+        creator = ReleaseCreator(make_config(publish=None), tmp_path, dry_run=False)
         creator.create(internal=False)
 
         cmds = ran(mock_run)
         assert uses(cmds, "build.bat")
-        assert not uses(cmds, "git")  # no publish -> no commit/tag
+        assert not uses(cmds, "publish")
+        assert not uses(cmds, "git")  # commit declined above

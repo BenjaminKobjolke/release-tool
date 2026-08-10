@@ -129,7 +129,7 @@ class FTPClient:
         if is_absolute:
             original_dir = self._ftp.pwd()
             self._ftp.cwd("/")
-            logger.debug(f"Changed to root for absolute path creation")
+            logger.debug("Changed to root for absolute path creation")
 
         dirs = path.strip("/").split("/")
         logger.debug(f"Path components: {dirs}")

@@ -7,9 +7,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from release_tool.config import FTPConfig
-from release_tool.ftp_client import FTPClient
 from release_tool.exceptions import FTPError
-
+from release_tool.ftp_client import FTPClient
 
 # Store reference to real FTP class before any patching
 RealFTP = ftplib.FTP
@@ -60,9 +59,11 @@ class TestFTPClient:
         mock_ftp = MagicMock(spec=RealFTP)
         mock_ftp.connect.side_effect = ftplib.error_temp("Connection failed")
 
-        with patch("release_tool.ftp_client.ftplib.FTP", return_value=mock_ftp):
-            with pytest.raises(FTPError, match="Failed to connect"):
-                client.connect()
+        with (
+            patch("release_tool.ftp_client.ftplib.FTP", return_value=mock_ftp),
+            pytest.raises(FTPError, match="Failed to connect"),
+        ):
+            client.connect()
 
     def test_disconnect(self, client: FTPClient) -> None:
         """Test graceful disconnect."""

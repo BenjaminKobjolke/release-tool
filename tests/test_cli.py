@@ -3,10 +3,8 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from release_tool.cli import main, parse_args, parse_create_args, run
-from release_tool.exceptions import ConfigurationError, FTPError
+from release_tool.exceptions import FTPError
 
 
 class TestParseArgs:
@@ -24,13 +22,16 @@ class TestParseArgs:
 
     def test_parse_all_args(self) -> None:
         """Test parsing all arguments."""
-        args = parse_args([
-            "app.zip",
-            "release.ini",
-            "--previous-version", "1.2.3",
-            "--dry-run",
-            "--verbose",
-        ])
+        args = parse_args(
+            [
+                "app.zip",
+                "release.ini",
+                "--previous-version",
+                "1.2.3",
+                "--dry-run",
+                "--verbose",
+            ]
+        )
 
         assert args.file == Path("app.zip")
         assert args.config == Path("release.ini")

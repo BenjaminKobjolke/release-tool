@@ -126,9 +126,7 @@ class ReleaseConfig:
             if enabled:
                 network_path = pre_sign_section.get("network_path", "")
                 if not network_path:
-                    raise ConfigurationError(
-                        "PreSigning network_path is required when enabled"
-                    )
+                    raise ConfigurationError("PreSigning network_path is required when enabled")
                 network_path_signed = pre_sign_section.get("network_path_signed", "")
                 if not network_path_signed:
                     raise ConfigurationError(
@@ -136,9 +134,7 @@ class ReleaseConfig:
                     )
                 expected_signer = pre_sign_section.get("expected_signer", "")
                 if not expected_signer:
-                    raise ConfigurationError(
-                        "PreSigning expected_signer is required when enabled"
-                    )
+                    raise ConfigurationError("PreSigning expected_signer is required when enabled")
                 try:
                     pre_sign_config = PreSignConfig(
                         enabled=True,
@@ -149,25 +145,21 @@ class ReleaseConfig:
                         timeout=pre_sign_section.getint("timeout", 300),
                     )
                 except ValueError as e:
-                    raise ConfigurationError(
-                        f"Invalid PreSigning configuration: {e}"
-                    ) from e
+                    raise ConfigurationError(f"Invalid PreSigning configuration: {e}") from e
 
         # Parse ReleaseNotes section (optional)
         release_notes_config = None
         if "ReleaseNotes" in parser:
             release_notes_section = parser["ReleaseNotes"]
-            path = release_notes_section.get("path", "")
+            notes_path = release_notes_section.get("path", "")
             remote_path = release_notes_section.get("remote_path", "")
-            if path and remote_path:
+            if notes_path and remote_path:
                 release_notes_config = ReleaseNotesConfig(
-                    path=path,
+                    path=notes_path,
                     remote_path=remote_path,
                 )
-            elif path or remote_path:
-                raise ConfigurationError(
-                    "ReleaseNotes requires both 'path' and 'remote_path'"
-                )
+            elif notes_path or remote_path:
+                raise ConfigurationError("ReleaseNotes requires both 'path' and 'remote_path'")
 
         return cls(
             ftp=ftp_config,

@@ -1,7 +1,8 @@
 """Tests for configuration module."""
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 from release_tool.config import (
     FTPConfig,

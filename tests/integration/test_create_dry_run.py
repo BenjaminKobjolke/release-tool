@@ -24,8 +24,13 @@ def _make_project(root: Path) -> None:
     (tools / "version_get.bat").write_text("@echo off\necho 1.0.0\n")
     (tools / "build_get.bat").write_text("@echo off\necho 21\n")
     # Mutating bats are never executed under --dry-run, but must exist as paths.
-    for name in ("build_increment", "build_decrement", "build_release",
-                 "translator_app-release-notes", "publish_release"):
+    for name in (
+        "build_increment",
+        "build_decrement",
+        "build_release",
+        "translator_app-release-notes",
+        "publish_release",
+    ):
         (tools / f"{name}.bat").write_text("@echo off\n")
 
     notes = root / "release_notes" / "1.0.0_22"
@@ -53,3 +58,40 @@ def test_create_missing_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     exit_code = main(["create", "release_create.ini", "--dry-run"])
 
     assert exit_code == 2  # ConfigurationError
+
+
+def _make_semver_project(root: Path) -> None:
+    """A semver project: version_get prints a bare X.Y.Z, no build counter."""
+    tools = root / "tools"
+    tools.mkdir()
+    (tools / "get_version.bat").write_text("@echo off\necho 0.1.6\n")
+    for name in (
+        "increment_version",
+        "decrement_version",
+        "build",
+        "translator_release_notes",
+        "publish_release",
+    ):
+        (tools / f"{name}.bat").write_text("@echo off\n")
+
+    notes = root / "release_notes" / "0.1.7"
+    notes.mkdir(parents=True)
+    (notes / "en.json").write_text('{"notes": ["x"]}')
+
+    (root / "release_create.ini").write_text(
+        "[Release]\nscope = calc\npublish_platform = Website\nversioning = semver\n"
+        "[Bats]\nversion_get = tools/get_version.bat\n"
+        "build_increment = tools/increment_version.bat\n"
+        "build_decrement = tools/decrement_version.bat\n"
+        "translate = tools/translator_release_notes.bat\n"
+        "build = tools/build.bat\npublish = tools/publish_release.bat\n"
+    )
+
+
+def test_create_dry_run_semver_resolves(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _make_semver_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(["create", "release_create.ini", "--dry-run"])
+
+    assert exit_code == 0

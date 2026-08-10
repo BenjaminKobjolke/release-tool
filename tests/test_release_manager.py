@@ -36,9 +36,7 @@ class TestReleaseManager:
             ),
         )
 
-    def test_release_file_not_found(
-        self, release_config: ReleaseConfig, tmp_path: Path
-    ) -> None:
+    def test_release_file_not_found(self, release_config: ReleaseConfig, tmp_path: Path) -> None:
         """Test release fails when file doesn't exist."""
         manager = ReleaseManager(release_config)
         nonexistent = tmp_path / "nonexistent.exe"
@@ -47,9 +45,7 @@ class TestReleaseManager:
 
         assert result is False
 
-    def test_dry_run_release(
-        self, release_config: ReleaseConfig, tmp_path: Path
-    ) -> None:
+    def test_dry_run_release(self, release_config: ReleaseConfig, tmp_path: Path) -> None:
         """Test dry run doesn't connect to FTP."""
         test_file = tmp_path / "test.exe"
         test_file.write_bytes(b"content")
@@ -62,22 +58,20 @@ class TestReleaseManager:
             assert result is True
             mock_connect.assert_not_called()
 
-    def test_release_new_file(
-        self, release_config: ReleaseConfig, tmp_path: Path
-    ) -> None:
+    def test_release_new_file(self, release_config: ReleaseConfig, tmp_path: Path) -> None:
         """Test releasing a new file (no existing file on remote)."""
         test_file = tmp_path / "test.exe"
         test_file.write_bytes(b"content")
 
         manager = ReleaseManager(release_config)
 
-        with patch.object(manager.client, "connect"):
-            with patch.object(manager.client, "disconnect"):
-                with patch.object(
-                    manager.client, "file_exists", return_value=False
-                ) as mock_exists:
-                    with patch.object(manager.client, "upload_file") as mock_upload:
-                        result = manager.release(test_file)
+        with (
+            patch.object(manager.client, "connect"),
+            patch.object(manager.client, "disconnect"),
+            patch.object(manager.client, "file_exists", return_value=False) as mock_exists,
+            patch.object(manager.client, "upload_file") as mock_upload,
+        ):
+            result = manager.release(test_file)
 
         assert result is True
         mock_exists.assert_called_once_with("test.exe")
@@ -92,39 +86,33 @@ class TestReleaseManager:
 
         manager = ReleaseManager(release_config)
 
-        with patch.object(manager.client, "connect"):
-            with patch.object(manager.client, "disconnect"):
-                with patch.object(
-                    manager.client, "file_exists", return_value=True
-                ):
-                    with patch.object(
-                        manager.old_file_handler, "handle"
-                    ) as mock_handle:
-                        with patch.object(manager.client, "upload_file"):
-                            result = manager.release(test_file)
+        with (
+            patch.object(manager.client, "connect"),
+            patch.object(manager.client, "disconnect"),
+            patch.object(manager.client, "file_exists", return_value=True),
+            patch.object(manager.old_file_handler, "handle") as mock_handle,
+            patch.object(manager.client, "upload_file"),
+        ):
+            result = manager.release(test_file)
 
         assert result is True
         mock_handle.assert_called_once_with(manager.client, "test.exe", None)
 
-    def test_release_with_version(
-        self, release_config: ReleaseConfig, tmp_path: Path
-    ) -> None:
+    def test_release_with_version(self, release_config: ReleaseConfig, tmp_path: Path) -> None:
         """Test releasing with version for backup naming."""
         test_file = tmp_path / "test.exe"
         test_file.write_bytes(b"content")
 
         manager = ReleaseManager(release_config, version="1.2.3")
 
-        with patch.object(manager.client, "connect"):
-            with patch.object(manager.client, "disconnect"):
-                with patch.object(
-                    manager.client, "file_exists", return_value=True
-                ):
-                    with patch.object(
-                        manager.old_file_handler, "handle"
-                    ) as mock_handle:
-                        with patch.object(manager.client, "upload_file"):
-                            result = manager.release(test_file)
+        with (
+            patch.object(manager.client, "connect"),
+            patch.object(manager.client, "disconnect"),
+            patch.object(manager.client, "file_exists", return_value=True),
+            patch.object(manager.old_file_handler, "handle") as mock_handle,
+            patch.object(manager.client, "upload_file"),
+        ):
+            result = manager.release(test_file)
 
         assert result is True
         mock_handle.assert_called_once_with(manager.client, "test.exe", "1.2.3")
@@ -143,9 +131,11 @@ class TestReleaseManager:
             mock_connection.return_value.__enter__ = MagicMock(return_value=mock_cm)
             mock_connection.return_value.__exit__ = MagicMock(return_value=False)
 
-            with patch.object(manager.client, "file_exists", return_value=False):
-                with patch.object(manager.client, "upload_file"):
-                    manager.release(test_file)
+            with (
+                patch.object(manager.client, "file_exists", return_value=False),
+                patch.object(manager.client, "upload_file"),
+            ):
+                manager.release(test_file)
 
             mock_connection.assert_called_once()
 
@@ -175,11 +165,11 @@ class TestReleaseManager:
             mock_connection.return_value.__enter__ = MagicMock(return_value=mock_cm)
             mock_connection.return_value.__exit__ = MagicMock(return_value=False)
 
-            with patch.object(
-                manager.client, "directory_exists", return_value=True
+            with (
+                patch.object(manager.client, "directory_exists", return_value=True),
+                patch("builtins.input", return_value="n"),
             ):
-                with patch("builtins.input", return_value="n"):
-                    result = manager.release(test_file)
+                result = manager.release(test_file)
 
         assert result is False
 
@@ -209,15 +199,13 @@ class TestReleaseManager:
             mock_connection.return_value.__enter__ = MagicMock(return_value=mock_cm)
             mock_connection.return_value.__exit__ = MagicMock(return_value=False)
 
-            with patch.object(
-                manager.client, "directory_exists", return_value=True
+            with (
+                patch.object(manager.client, "directory_exists", return_value=True),
+                patch("builtins.input", return_value="y"),
+                patch.object(manager.client, "file_exists", return_value=False),
+                patch.object(manager.client, "upload_file"),
             ):
-                with patch("builtins.input", return_value="y"):
-                    with patch.object(
-                        manager.client, "file_exists", return_value=False
-                    ):
-                        with patch.object(manager.client, "upload_file"):
-                            result = manager.release(test_file)
+                result = manager.release(test_file)
 
         assert result is True
 
@@ -247,16 +235,16 @@ class TestReleaseManager:
             mock_connection.return_value.__enter__ = MagicMock(return_value=mock_cm)
             mock_connection.return_value.__exit__ = MagicMock(return_value=False)
 
-            with patch.object(
-                manager.client, "directory_exists", return_value=False
+            with (
+                patch.object(manager.client, "directory_exists", return_value=False),
+                patch("builtins.input") as mock_input,
             ):
-                with patch("builtins.input") as mock_input:
-                    with patch.object(
-                        manager.client, "file_exists", return_value=False
-                    ):
-                        with patch.object(manager.client, "upload_file"):
-                            result = manager.release(test_file)
+                with (
+                    patch.object(manager.client, "file_exists", return_value=False),
+                    patch.object(manager.client, "upload_file"),
+                ):
+                    result = manager.release(test_file)
 
-                    mock_input.assert_not_called()
+                mock_input.assert_not_called()
 
         assert result is True

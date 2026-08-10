@@ -46,21 +46,14 @@ class ReleaseManager:
         """Preview release without making changes."""
         filename = file_path.name
 
-        if self.pre_signer:
+        pre_sign = self.config.pre_sign
+        if pre_sign:
             logger.info("[DRY RUN] Pre-signing enabled")
+            logger.info(f"[DRY RUN] Would copy {filename} to {pre_sign.network_path}")
+            logger.info(f"[DRY RUN] Would wait for signed file at: {pre_sign.network_path_signed}")
+            logger.info(f"[DRY RUN] Expected signer: {pre_sign.expected_signer}")
             logger.info(
-                f"[DRY RUN] Would copy {filename} to {self.config.pre_sign.network_path}"
-            )
-            logger.info(
-                f"[DRY RUN] Would wait for signed file at: "
-                f"{self.config.pre_sign.network_path_signed}"
-            )
-            logger.info(
-                f"[DRY RUN] Expected signer: {self.config.pre_sign.expected_signer}"
-            )
-            logger.info(
-                f"[DRY RUN] Poll interval: {self.config.pre_sign.poll_interval}s, "
-                f"timeout: {self.config.pre_sign.timeout}s"
+                f"[DRY RUN] Poll interval: {pre_sign.poll_interval}s, timeout: {pre_sign.timeout}s"
             )
             logger.info("[DRY RUN] Would move signed file back to source location")
 
@@ -68,9 +61,7 @@ class ReleaseManager:
         logger.info(f"[DRY RUN] Host: {self.config.ftp.host}:{self.config.ftp.port}")
         logger.info(f"[DRY RUN] Remote path: {self.config.ftp.remote_path}")
         logger.info(f"[DRY RUN] Would check if {filename} exists on remote")
-        logger.info(
-            f"[DRY RUN] Old file policy: {self.config.old_file.policy.value}"
-        )
+        logger.info(f"[DRY RUN] Old file policy: {self.config.old_file.policy.value}")
         if self.version:
             logger.info(f"[DRY RUN] Version for backup: {self.version}")
         logger.info(f"[DRY RUN] Would upload {file_path}")
@@ -102,7 +93,7 @@ class ReleaseManager:
             if self.client.directory_exists(version_path):
                 logger.warning(f"Version folder already exists: {version_path}")
                 response = input(f"Version {self.version} already exists. Overwrite? [y/N]: ")
-                if response.lower() != 'y':
+                if response.lower() != "y":
                     logger.info("Aborted by user")
                     return False
 
@@ -124,9 +115,7 @@ class ReleaseManager:
             logger.debug(f"Checking if file exists on remote: {filename}")
             if self.client.file_exists(filename):
                 logger.info(f"Existing file found: {filename}")
-                logger.debug(
-                    f"Calling old file handler: {type(self.old_file_handler).__name__}"
-                )
+                logger.debug(f"Calling old file handler: {type(self.old_file_handler).__name__}")
                 logger.debug(f"Version parameter: {self.version}")
                 self.old_file_handler.handle(self.client, filename, self.version)
             else:

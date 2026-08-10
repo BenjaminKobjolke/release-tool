@@ -61,6 +61,4 @@ def _raise_on_failure(returncode: int, printable: str, stderr: str = "") -> None
     """Raise ReleaseCreateError for a non-zero exit, appending stderr if present."""
     if returncode != 0:
         detail = f"\n{stderr}" if stderr else ""
-        raise ReleaseCreateError(
-            f"Command failed (exit {returncode}): {printable}{detail}"
-        )
+        raise ReleaseCreateError(f"Command failed (exit {returncode}): {printable}{detail}")

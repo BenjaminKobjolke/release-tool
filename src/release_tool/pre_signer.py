@@ -113,9 +113,7 @@ class PreSigner:
         while True:
             elapsed = time.time() - start_time
             if elapsed >= self.config.timeout:
-                raise PreSignError(
-                    f"Timeout waiting for signature after {self.config.timeout}s"
-                )
+                raise PreSignError(f"Timeout waiting for signature after {self.config.timeout}s")
 
             poll_count += 1
             remaining = int(self.config.timeout - elapsed)
@@ -155,9 +153,7 @@ class PreSigner:
                 break
             except OSError as e:
                 if attempt == _COPY_RETRIES:
-                    raise PreSignError(
-                        f"Failed to copy signed file back: {e}"
-                    ) from e
+                    raise PreSignError(f"Failed to copy signed file back: {e}") from e
                 logger.warning(
                     f"Copy-back failed (attempt {attempt}/{_COPY_RETRIES}), "
                     f"file may be locked; retrying in {_COPY_RETRY_DELAY}s: {e}"
@@ -169,9 +165,7 @@ class PreSigner:
         # Best-effort cleanup of the network share: warn on failure, never abort.
         self._cleanup_server(signed_file, unsigned_network_file)
 
-    def _cleanup_server(
-        self, signed_file: Path, unsigned_network_file: Path
-    ) -> None:
+    def _cleanup_server(self, signed_file: Path, unsigned_network_file: Path) -> None:
         """Delete signed + unsigned copies from the network share, best-effort."""
         for path in (signed_file, unsigned_network_file):
             try:

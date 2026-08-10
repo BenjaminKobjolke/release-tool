@@ -36,12 +36,8 @@ class RenameHandler(OldFileHandler):
 
     def handle(self, client: FTPClient, filename: str, version: str | None) -> None:
         """Move the existing file to a backup subfolder."""
-        logger.debug(
-            f"RenameHandler.handle called: filename={filename}, version={version}"
-        )
-        logger.debug(
-            f"Settings: subfolder_base={self.subfolder_base}, naming={self.naming}"
-        )
+        logger.debug(f"RenameHandler.handle called: filename={filename}, version={version}")
+        logger.debug(f"Settings: subfolder_base={self.subfolder_base}, naming={self.naming}")
 
         if self.naming == SubfolderNaming.TIMESTAMP:
             suffix = datetime.now().strftime("%Y%m%d_%H%M%S")

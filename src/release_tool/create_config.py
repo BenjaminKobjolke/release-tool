@@ -15,6 +15,16 @@ DEFAULT_SCOPE = "app"
 DEFAULT_NOTES_DIR = "release_notes"
 DEFAULT_EN_FILE = "en.json"
 DEFAULT_LABEL_FORMAT = "{version}_{build}"
+DEFAULT_PREVIOUS_VERSION_FILE = "tools/previous_version.txt"
+
+# Versioning mode: how the release label is derived.
+#   "build"  — version-fixed + build-incrementing: label = label_format with a
+#              build counter (build_get) bumped each release (build_increment).
+#   "semver" — no build counter: each release bumps the last segment of the
+#              version (version_get), e.g. 0.1.6 -> 0.1.7. build_get/label_format
+#              are unused; build_increment/build_decrement are the version bump/rollback.
+DEFAULT_VERSIONING = "build"
+VALID_VERSIONING = {"build", "semver"}
 
 # Conventional bat paths (relative to the project root). `publish` has no default
 # on purpose: an absent/empty publish bat means "build, then stop" (no publish,
@@ -51,6 +61,8 @@ class CreateConfig:
     notes_dir: str
     en_file: str
     label_format: str
+    versioning: str
+    previous_version_file: str
     english_only: bool
     bats: BatsConfig
 
@@ -64,9 +76,7 @@ class CreateConfig:
         try:
             parser.read(path, encoding="utf-8")
         except configparser.Error as e:
-            raise ConfigurationError(
-                f"Failed to parse create configuration file: {e}"
-            ) from e
+            raise ConfigurationError(f"Failed to parse create configuration file: {e}") from e
 
         release_section = parser["Release"] if "Release" in parser else {}
         bats_section = parser["Bats"] if "Bats" in parser else {}
@@ -77,6 +87,16 @@ class CreateConfig:
             raise ConfigurationError(
                 f"Invalid 'english_only' value (expected true/false): {e}"
             ) from e
+
+        versioning = (
+            release_section.get("versioning", DEFAULT_VERSIONING).strip().lower()
+            or DEFAULT_VERSIONING
+        )
+        if versioning not in VALID_VERSIONING:
+            raise ConfigurationError(
+                f"Invalid 'versioning' value: {versioning!r}. "
+                f"Must be one of {sorted(VALID_VERSIONING)}."
+            )
 
         publish_raw = bats_section.get("publish", "").strip()
         bats = BatsConfig(
@@ -101,14 +121,17 @@ class CreateConfig:
             en_file=release_section.get("en_file", DEFAULT_EN_FILE).strip() or DEFAULT_EN_FILE,
             label_format=release_section.get("label_format", DEFAULT_LABEL_FORMAT).strip()
             or DEFAULT_LABEL_FORMAT,
+            versioning=versioning,
+            previous_version_file=release_section.get(
+                "previous_version_file", DEFAULT_PREVIOUS_VERSION_FILE
+            ).strip()
+            or DEFAULT_PREVIOUS_VERSION_FILE,
             english_only=english_only,
             bats=bats,
         )
 
 
-def _getboolean(
-    parser: configparser.ConfigParser, section: str, key: str, default: bool
-) -> bool:
+def _getboolean(parser: configparser.ConfigParser, section: str, key: str, default: bool) -> bool:
     """Read a boolean, returning ``default`` when the section/key is absent."""
     if section not in parser or key not in parser[section]:
         return default

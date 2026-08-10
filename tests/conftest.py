@@ -1,8 +1,8 @@
 """Pytest fixtures for release tool tests."""
 
-import pytest
 from pathlib import Path
-import tempfile
+
+import pytest
 
 from release_tool.config import (
     FTPConfig,

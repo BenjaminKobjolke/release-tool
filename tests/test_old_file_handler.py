@@ -3,8 +3,6 @@
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from release_tool.config import OldFileConfig, OldFilePolicy, SubfolderNaming
 from release_tool.ftp_client import FTPClient
 from release_tool.old_file_handler import (
@@ -55,9 +53,7 @@ class TestRenameHandler:
 
         mock_client.ensure_directory.assert_any_call("backups")
         mock_client.ensure_directory.assert_any_call("backups/1.2.3")
-        mock_client.rename_file.assert_called_once_with(
-            "app.exe", "backups/1.2.3/app.exe"
-        )
+        mock_client.rename_file.assert_called_once_with("app.exe", "backups/1.2.3/app.exe")
 
     def test_handle_version_naming_no_version_falls_back_to_timestamp(self) -> None:
         """Test version naming falls back to timestamp when no version provided."""

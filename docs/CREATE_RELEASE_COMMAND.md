@@ -44,11 +44,18 @@ release-tool create --verbose
 
 ## What it does
 
-1. **Compute the next label** — `<version>_<build+1>`. The version comes from the
-   `version_get` bat (a bare `1.0.0` or a full `1.0.0_21` are both accepted — a
-   trailing `_<build>` is stripped); the build comes from `build_get`. Computed
-   before anything mutates, so the notes folder targets the shipping label.
-   *Build first, ship next: the counter holds the last shipped build.*
+1. **Compute the labels** — the *shipping* label (released now) and the *previous*
+   label (the version currently online, used to name its backup). Both derive from
+   one `version_get` read (a bare `1.0.0` or a full `1.0.0_21` are both accepted —
+   a trailing `_<build>` is stripped), so they can't drift apart. How the shipping
+   label is formed depends on **`versioning`** (see "Versioning modes"):
+   - `build` (default): `previous = <version>_<build>`, `shipping =
+     <version>_<build+1>` — build from `build_get`.
+   - `semver`: `previous = <version>`, `shipping = <version>` with its last dotted
+     segment +1 (`0.1.6` → `0.1.7`) — `build_get` is not read.
+
+   Computed before anything mutates, so the notes folder targets the shipping label.
+   *Bump first, ship next: the counter/version holds the last shipped label.*
 2. **Ensure release notes** (skipped with `--internal`). If
    `<notes_dir>/<label>/<en_file>` is missing, author it headlessly via
    `codex exec --dangerously-bypass-approvals-and-sandbox` (authors **only**
@@ -58,15 +65,35 @@ release-tool create --verbose
 4. **Translate** — `translate` bat (skipped when `english_only = true`).
 5. **Build** — `build` bat. **If it fails, `build_decrement` rolls the counter
    back** so the label doesn't drift ahead, then the run aborts.
-6. **Publish** — the single interactive gate. If a `publish` bat is configured you
-   are asked once: `Publish <label> to <platform>? [y/N]`.
-   - `y` → run the publish bat, then step 7.
-   - `n`, or no publish bat configured → report the built artifact, **skip step 7**
-     (no commit, no tag — nothing was shipped).
-7. **Commit + tag** — `git add -A` (so a fresh `release_notes/<label>/` is
-   included), then `git commit -m "<TYPE> (<scope>): <label>"` and `git tag <label>`.
-   `<TYPE>` is `RELEASE` for an end-user release, `INTERNAL` with `--internal`.
-   Only `RELEASE` should advance the anchor release-notes diff against.
+6. **Record the previous version** — write the previous (online) label to
+   `previous_version_file` (default `tools/previous_version.txt`). The publish bat
+   reads this for `--previous-version` backup naming, so it never needs
+   hand-editing — whether publish runs now (step 7) or by hand later. Gitignore
+   this file.
+7. **Publish** (optional gate) — if a `publish` bat is configured you are asked
+   `Publish <label> to <platform>? [y/N]`. `y` → run the publish bat (no arguments;
+   it reads `previous_version_file`). `n`, or no publish bat → skip. **Independent
+   of step 8.**
+8. **Commit + tag + push** (optional gate) — asked
+   `Commit, tag and push <label>? [y/N]`. `y` → `git add -A` (so a fresh
+   `release_notes/<label>/` is included), `git commit -m "<TYPE> (<scope>): <label>"`,
+   `git tag <label>`, `git push`, `git push origin <label>`. `<TYPE>` is `RELEASE`,
+   or `INTERNAL` with `--internal`. **Independent of step 7** — declining publish
+   still lets you commit, and vice versa.
+
+## Versioning modes
+
+`versioning` selects how the shipping label is derived and which bats are used:
+
+- **`build`** (default) — version-fixed + build-incrementing. Label =
+  `label_format` (default `{version}_{build}`); the build integer comes from
+  `build_get` and is bumped by `build_increment` (rolled back by `build_decrement`
+  on build failure). Use when the semver version is stable across many builds.
+- **`semver`** — no build counter. Each release bumps the **last dotted segment**
+  of the version (`0.1.6` → `0.1.7`). `build_get` and `label_format` are ignored;
+  `build_increment`/`build_decrement` are the project's version bump/rollback bats
+  (e.g. `increment_version.bat` writing `version.txt`). Use for projects whose
+  release *is* a patch bump.
 
 ## Configuration — `release_create.ini`
 
@@ -81,27 +108,32 @@ default cwd is the project root, so no `--project-root` is needed — the legacy
 layout still works.)
 
 ```ini
+; NOTE: configparser does not strip inline `;`/`#` comments — keep active values
+; bare; put comments on their own lines.
 [Release]
-scope = app                          ; commit scope in "RELEASE (<scope>): <label>"
-publish_platform = Google Play Store ; named in the publish prompt
+scope = app
+publish_platform = Google Play Store
 
 ; --- optional overrides (defaults shown) ---
 ; notes_dir = release_notes
 ; en_file = en.json
-; label_format = {version}_{build}
+; label_format = {version}_{build}   ; build mode only
+; versioning = build                 ; build | semver (see "Versioning modes")
+; previous_version_file = tools/previous_version.txt  ; where the online version is recorded
 ; english_only = false               ; true => skip the translate step
 
 [Bats]
 ; All paths are relative to the project root. Omit a line to keep the default.
 ; version_get     = tools/version_get.bat
-; build_get       = tools/build_get.bat
-; build_increment = tools/build_increment.bat
-; build_decrement = tools/build_decrement.bat
+; build_get       = tools/build_get.bat       ; unused in semver mode
+; build_increment = tools/build_increment.bat ; version bump bat in semver mode
+; build_decrement = tools/build_decrement.bat ; version rollback bat in semver mode
 ; translate       = tools/translator_app-release-notes.bat
 ; build           = tools/build_release.bat
 
-; publish has NO default. Set it to enable publish + commit + tag.
-; Leave it out (or empty) to build and stop.
+; publish has NO default. Set it to offer the publish gate. The bat is called
+; with NO arguments — it reads previous_version_file for --previous-version.
+; Omitting publish just skips the publish gate; commit/tag/push is still offered.
 publish = tools/publish_release.bat
 ```
 
@@ -113,7 +145,9 @@ publish = tools/publish_release.bat
 | `[Release]` | `publish_platform` | *(empty)* | Human name of the publish target, shown in the prompt. |
 | `[Release]` | `notes_dir` | `release_notes` | Base folder for release-notes subfolders. |
 | `[Release]` | `en_file` | `en.json` | The hand/AI-authored English notes file. |
-| `[Release]` | `label_format` | `{version}_{build}` | How the label is composed. |
+| `[Release]` | `label_format` | `{version}_{build}` | How the label is composed (`build` mode only). |
+| `[Release]` | `versioning` | `build` | `build` (counter) or `semver` (patch bump). See "Versioning modes". |
+| `[Release]` | `previous_version_file` | `tools/previous_version.txt` | Where the previous (online) version is recorded for the publish bat. Gitignore it. |
 | `[Release]` | `english_only` | `false` | `true` skips the translate step. |
 | `[Bats]` | `version_get` | `tools/version_get.bat` | Prints the version. |
 | `[Bats]` | `build_get` | `tools/build_get.bat` | Prints the current build integer. |
@@ -121,7 +155,7 @@ publish = tools/publish_release.bat
 | `[Bats]` | `build_decrement` | `tools/build_decrement.bat` | Rolls the build counter back (on build failure). |
 | `[Bats]` | `translate` | `tools/translator_app-release-notes.bat` | Generates non-English locales. |
 | `[Bats]` | `build` | `tools/build_release.bat` | Builds + bundles the artifact. |
-| `[Bats]` | `publish` | *(none)* | Publishes. **Absent/empty → build-and-stop.** |
+| `[Bats]` | `publish` | *(none)* | Offers the publish gate; the bat reads `previous_version_file`. **Absent/empty → skip publish only** (commit/tag/push still offered). |
 
 ## Setup per project
 
@@ -144,6 +178,9 @@ the project's `docs/CREATE_NEW_RELEASE.md`, discovers its `tools/*.bat`, and wri
    `%~dp0` is the bat's own folder (`…\tools\`), so `"%~dp0release_create.ini"`
    is the config and `"%~dp0.."` is the project root. `%*` forwards
    `--internal` / `--dry-run`. See `examples/release_create.bat`.
+
+It also points the project's publish bat at `previous_version_file` (reads it for
+`--previous-version`) and gitignores that file.
 
 Then the one-command release is `tools\release_create.bat` (add `--internal` for
 an internal test build), verified with `tools\release_create.bat --dry-run`.

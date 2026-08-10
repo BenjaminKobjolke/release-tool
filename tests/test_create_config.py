@@ -14,9 +14,7 @@ class TestCreateConfig:
     def test_minimal(self, tmp_path: Path) -> None:
         """A minimal INI falls back to conventional defaults."""
         config_path = tmp_path / "release_create.ini"
-        config_path.write_text(
-            "[Release]\nscope = myapp\npublish_platform = Play Store\n"
-        )
+        config_path.write_text("[Release]\nscope = myapp\npublish_platform = Play Store\n")
 
         config = CreateConfig.from_ini_file(config_path)
 
@@ -25,6 +23,7 @@ class TestCreateConfig:
         assert config.notes_dir == "release_notes"
         assert config.en_file == "en.json"
         assert config.label_format == "{version}_{build}"
+        assert config.versioning == "build"
         assert config.english_only is False
         assert config.bats.version_get == "tools/version_get.bat"
         assert config.bats.build == "tools/build_release.bat"
@@ -88,4 +87,20 @@ class TestCreateConfig:
         config_path.write_text("[Release]\nenglish_only = maybe\n")
 
         with pytest.raises(ConfigurationError, match="english_only"):
+            CreateConfig.from_ini_file(config_path)
+
+    def test_versioning_semver(self, tmp_path: Path) -> None:
+        """versioning = semver is parsed (case-insensitive)."""
+        config_path = tmp_path / "release_create.ini"
+        config_path.write_text("[Release]\nversioning = SemVer\n")
+
+        config = CreateConfig.from_ini_file(config_path)
+
+        assert config.versioning == "semver"
+
+    def test_invalid_versioning(self, tmp_path: Path) -> None:
+        config_path = tmp_path / "release_create.ini"
+        config_path.write_text("[Release]\nversioning = calver\n")
+
+        with pytest.raises(ConfigurationError, match="versioning"):
             CreateConfig.from_ini_file(config_path)
