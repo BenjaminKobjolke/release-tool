@@ -61,6 +61,10 @@ class CreateConfig:
     notes_dir: str
     en_file: str
     label_format: str
+    # Key for the release-notes subfolder. Defaults to label_format; set it when the
+    # notes folder must differ from the commit/tag label (e.g. Flutter/Play keys notes
+    # by build number while the tag stays version+build). See docs/NOTES_LABEL_FORMAT.md.
+    notes_label_format: str
     versioning: str
     previous_version_file: str
     english_only: bool
@@ -113,14 +117,22 @@ class CreateConfig:
             publish=publish_raw or None,
         )
 
+        label_format = (
+            release_section.get("label_format", DEFAULT_LABEL_FORMAT).strip() or DEFAULT_LABEL_FORMAT
+        )
+        # notes_label_format defaults to label_format so existing configs are unchanged.
+        notes_label_format = (
+            release_section.get("notes_label_format", "").strip() or label_format
+        )
+
         return cls(
             scope=release_section.get("scope", DEFAULT_SCOPE).strip() or DEFAULT_SCOPE,
             publish_platform=release_section.get("publish_platform", "").strip(),
             notes_dir=release_section.get("notes_dir", DEFAULT_NOTES_DIR).strip()
             or DEFAULT_NOTES_DIR,
             en_file=release_section.get("en_file", DEFAULT_EN_FILE).strip() or DEFAULT_EN_FILE,
-            label_format=release_section.get("label_format", DEFAULT_LABEL_FORMAT).strip()
-            or DEFAULT_LABEL_FORMAT,
+            label_format=label_format,
+            notes_label_format=notes_label_format,
             versioning=versioning,
             previous_version_file=release_section.get(
                 "previous_version_file", DEFAULT_PREVIOUS_VERSION_FILE

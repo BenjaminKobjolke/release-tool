@@ -15,6 +15,8 @@ def make_config(
     publish: str | None = "tools/publish.bat",
     english_only: bool = False,
     versioning: str = "build",
+    label_format: str = "{version}_{build}",
+    notes_label_format: str = "{version}_{build}",
 ) -> CreateConfig:
     bats = BatsConfig(
         version_get="tools/version_get.bat",
@@ -30,7 +32,8 @@ def make_config(
         publish_platform="Store",
         notes_dir="release_notes",
         en_file="en.json",
-        label_format="{version}_{build}",
+        label_format=label_format,
+        notes_label_format=notes_label_format,
         versioning=versioning,
         previous_version_file="tools/previous_version.txt",
         english_only=english_only,
@@ -88,6 +91,24 @@ class TestComputeLabel:
         creator = ReleaseCreator(make_config(), tmp_path, dry_run=True)
         with pytest.raises(ReleaseCreateError, match="no version"):
             creator._compute_labels()
+
+    @patch("release_tool.release_creator.capture_command")
+    def test_notes_label_defaults_to_shipping(self, mock_capture: MagicMock, tmp_path: Path) -> None:
+        """With notes_label_format == label_format, the notes label equals shipping."""
+        label_capture(mock_capture)
+        labels = ReleaseCreator(make_config(), tmp_path, dry_run=True)._compute_labels()
+        assert labels.notes == labels.shipping == "1.0.0_22"
+
+    @patch("release_tool.release_creator.capture_command")
+    def test_notes_label_decoupled_from_commit_label(
+        self, mock_capture: MagicMock, tmp_path: Path
+    ) -> None:
+        """notes_label_format keys the notes folder independently of the commit/tag label."""
+        mock_capture.side_effect = ["1.0.0", "21"]
+        config = make_config(label_format="{version}+{build}", notes_label_format="{build}")
+        labels = ReleaseCreator(config, tmp_path, dry_run=True)._compute_labels()
+        assert labels.shipping == "1.0.0+22"  # commit/tag label
+        assert labels.notes == "22"  # notes-folder key
 
 
 class TestSemverLabels:
@@ -161,6 +182,23 @@ class TestCreateFlow:
         creator = ReleaseCreator(make_config(), tmp_path, dry_run=True)
         creator.create(internal=False)
         assert uses(ran(mock_run), "codex")
+
+    @patch("release_tool.release_creator.run_command")
+    @patch("release_tool.release_creator.capture_command")
+    def test_notes_lookup_uses_notes_label(
+        self, mock_capture: MagicMock, mock_run: MagicMock, tmp_path: Path
+    ) -> None:
+        """Notes present under the notes-label folder satisfy the step; commit uses the full label."""
+        mock_capture.side_effect = ["1.0.0", "21"]
+        prepare_notes(tmp_path, label="22")  # build-number folder, not the commit label
+        config = make_config(label_format="{version}+{build}", notes_label_format="{build}")
+
+        creator = ReleaseCreator(config, tmp_path, dry_run=True)
+        creator.create(internal=False)
+
+        cmds = ran(mock_run)
+        assert not uses(cmds, "codex")  # found at notes label, no authoring
+        assert ["git", "push", "origin", "1.0.0+22"] in cmds  # tag uses full label
 
     @patch("release_tool.release_creator.run_command")
     @patch("release_tool.release_creator.capture_command")

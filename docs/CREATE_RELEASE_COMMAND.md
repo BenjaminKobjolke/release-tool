@@ -118,6 +118,7 @@ publish_platform = Google Play Store
 ; notes_dir = release_notes
 ; en_file = en.json
 ; label_format = {version}_{build}   ; build mode only
+; notes_label_format = {version}_{build}  ; notes-folder key; defaults to label_format (see docs/NOTES_LABEL_FORMAT.md)
 ; versioning = build                 ; build | semver (see "Versioning modes")
 ; previous_version_file = tools/previous_version.txt  ; where the online version is recorded
 ; english_only = false               ; true => skip the translate step
@@ -145,7 +146,8 @@ publish = tools/publish_release.bat
 | `[Release]` | `publish_platform` | *(empty)* | Human name of the publish target, shown in the prompt. |
 | `[Release]` | `notes_dir` | `release_notes` | Base folder for release-notes subfolders. |
 | `[Release]` | `en_file` | `en.json` | The hand/AI-authored English notes file. |
-| `[Release]` | `label_format` | `{version}_{build}` | How the label is composed (`build` mode only). |
+| `[Release]` | `label_format` | `{version}_{build}` | How the commit/tag label is composed (`build` mode only). |
+| `[Release]` | `notes_label_format` | *(= `label_format`)* | Key for the release-notes subfolder, when it must differ from the commit/tag label. See [`docs/NOTES_LABEL_FORMAT.md`](NOTES_LABEL_FORMAT.md). |
 | `[Release]` | `versioning` | `build` | `build` (counter) or `semver` (patch bump). See "Versioning modes". |
 | `[Release]` | `previous_version_file` | `tools/previous_version.txt` | Where the previous (online) version is recorded for the publish bat. Gitignore it. |
 | `[Release]` | `english_only` | `false` | `true` skips the translate step. |

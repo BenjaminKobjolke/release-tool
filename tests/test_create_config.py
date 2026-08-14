@@ -89,6 +89,27 @@ class TestCreateConfig:
         with pytest.raises(ConfigurationError, match="english_only"):
             CreateConfig.from_ini_file(config_path)
 
+    def test_notes_label_format_defaults_to_label_format(self, tmp_path: Path) -> None:
+        """Absent notes_label_format mirrors label_format (notes folder == commit label)."""
+        config_path = tmp_path / "release_create.ini"
+        config_path.write_text("[Release]\nlabel_format = {version}+{build}\n")
+
+        config = CreateConfig.from_ini_file(config_path)
+
+        assert config.notes_label_format == "{version}+{build}"
+
+    def test_notes_label_format_override(self, tmp_path: Path) -> None:
+        """notes_label_format decouples the notes-folder key from the commit label."""
+        config_path = tmp_path / "release_create.ini"
+        config_path.write_text(
+            "[Release]\nlabel_format = {version}+{build}\nnotes_label_format = {build}\n"
+        )
+
+        config = CreateConfig.from_ini_file(config_path)
+
+        assert config.label_format == "{version}+{build}"
+        assert config.notes_label_format == "{build}"
+
     def test_versioning_semver(self, tmp_path: Path) -> None:
         """versioning = semver is parsed (case-insensitive)."""
         config_path = tmp_path / "release_create.ini"

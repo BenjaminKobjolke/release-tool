@@ -24,12 +24,16 @@ class ReleaseLabels:
     """The two labels a release deals with, derived from one version read.
 
     ``previous`` is the version currently online (the file being replaced) — used
-    to name its backup folder. ``shipping`` is the label being released now. Both
-    come from the same source, so they can never drift apart.
+    to name its backup folder. ``shipping`` is the label being released now.
+    ``notes`` keys the release-notes subfolder — usually equal to ``shipping``, but
+    ``notes_label_format`` can decouple it (e.g. build-number folders under a
+    version+build tag). All three derive from the same version/build read, so they
+    can never drift apart.
     """
 
     previous: str
     shipping: str
+    notes: str
 
 
 class ReleaseCreator:
@@ -51,7 +55,7 @@ class ReleaseCreator:
         logger.info(f"Next release label: {labels.shipping}")
 
         if not internal:
-            self._ensure_notes(labels.shipping)
+            self._ensure_notes(labels.notes)
 
         # Bump first, ship next: the counter/version is now the about-to-ship
         # label. If a later step fails, roll it back so it doesn't drift ahead.
@@ -100,7 +104,9 @@ class ReleaseCreator:
             raise ReleaseCreateError(
                 f"version_get returned a non-numeric last segment: {version!r}"
             ) from e
-        return ReleaseLabels(previous=version, shipping=".".join(parts))
+        shipping = ".".join(parts)
+        # semver has no build counter, so notes share the shipping version.
+        return ReleaseLabels(previous=version, shipping=shipping, notes=shipping)
 
     def _build_labels(self, version: str) -> ReleaseLabels:
         """Build mode: shipping = version + (current build + 1)."""
@@ -114,6 +120,7 @@ class ReleaseCreator:
         return ReleaseLabels(
             previous=self.config.label_format.format(version=version, build=build),
             shipping=self.config.label_format.format(version=version, build=build + 1),
+            notes=self.config.notes_label_format.format(version=version, build=build + 1),
         )
 
     def _ensure_notes(self, label: str) -> None:
