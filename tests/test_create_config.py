@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from release_tool.create_config import CreateConfig
+from release_tool.create_config import CreateConfig, PublishChannel
 from release_tool.exceptions import ConfigurationError
 
 
@@ -25,10 +25,12 @@ class TestCreateConfig:
         assert config.label_format == "{version}_{build}"
         assert config.versioning == "build"
         assert config.english_only is False
+        assert config.build_self_contained is False
         assert config.bats.version_get == "tools/version_get.bat"
         assert config.bats.build == "tools/build_release.bat"
         # publish has no default -> None means build-and-stop
         assert config.bats.publish is None
+        assert config.publish_channels == []
 
     def test_full_overrides(self, tmp_path: Path) -> None:
         """Every value can be overridden, including a publish bat."""
@@ -124,4 +126,136 @@ class TestCreateConfig:
         config_path.write_text("[Release]\nversioning = calver\n")
 
         with pytest.raises(ConfigurationError, match="versioning"):
+            CreateConfig.from_ini_file(config_path)
+
+    def test_build_self_contained_true(self, tmp_path: Path) -> None:
+        """A monolithic build bat (bump+translate+build+rollback) opts out of the
+        atomic increment/translate/decrement steps via this flag."""
+        config_path = tmp_path / "release_create.ini"
+        config_path.write_text("[Release]\nbuild_self_contained = true\n")
+
+        config = CreateConfig.from_ini_file(config_path)
+
+        assert config.build_self_contained is True
+
+    def test_invalid_build_self_contained(self, tmp_path: Path) -> None:
+        config_path = tmp_path / "release_create.ini"
+        config_path.write_text("[Release]\nbuild_self_contained = maybe\n")
+
+        with pytest.raises(ConfigurationError, match="build_self_contained"):
+            CreateConfig.from_ini_file(config_path)
+
+    @pytest.mark.parametrize(
+        ("publish_raw", "platform_raw", "expected"),
+        [
+            (
+                "tools/publish.bat",
+                "Website",
+                [PublishChannel(name="Website", bat="tools/publish.bat")],
+            ),
+            (
+                "tools/publish.bat, tools/play.bat",
+                "Website, Google Play",
+                [
+                    PublishChannel(name="Website", bat="tools/publish.bat"),
+                    PublishChannel(name="Google Play", bat="tools/play.bat"),
+                ],
+            ),
+            (
+                # Fewer names than bats: the unnamed trailing channel keeps its bat
+                # and falls back to a generic name (a bat must never be dropped).
+                "tools/publish.bat, tools/play.bat",
+                "Website",
+                [
+                    PublishChannel(name="Website", bat="tools/publish.bat"),
+                    PublishChannel(name="the release target", bat="tools/play.bat"),
+                ],
+            ),
+        ],
+    )
+    def test_publish_channels(
+        self,
+        tmp_path: Path,
+        publish_raw: str,
+        platform_raw: str,
+        expected: list[PublishChannel],
+    ) -> None:
+        config_path = tmp_path / "release_create.ini"
+        config_path.write_text(
+            f"[Release]\npublish_platform = {platform_raw}\n"
+            f"[Bats]\npublish = {publish_raw}\n"
+        )
+
+        config = CreateConfig.from_ini_file(config_path)
+
+        assert config.publish_channels == expected
+        # Legacy single-bat field always mirrors the first configured channel.
+        assert config.bats.publish == expected[0].bat
+
+    def test_no_publish_means_no_channels(self, tmp_path: Path) -> None:
+        config_path = tmp_path / "release_create.ini"
+        config_path.write_text("[Release]\nscope = a\n")
+
+        config = CreateConfig.from_ini_file(config_path)
+
+        assert config.publish_channels == []
+        assert config.bats.publish is None
+
+    def test_github_release_absent_by_default(self, tmp_path: Path) -> None:
+        config_path = tmp_path / "release_create.ini"
+        config_path.write_text("[Release]\nscope = a\n")
+
+        config = CreateConfig.from_ini_file(config_path)
+
+        assert config.github_release is None
+
+    def test_github_release_disabled_section_ignored(self, tmp_path: Path) -> None:
+        config_path = tmp_path / "release_create.ini"
+        config_path.write_text(
+            "[Release]\nscope = a\n[GitHubRelease]\nenabled = false\nassets = a.exe\n"
+        )
+
+        config = CreateConfig.from_ini_file(config_path)
+
+        assert config.github_release is None
+
+    def test_github_release_enabled_parses_assets_and_defaults(self, tmp_path: Path) -> None:
+        config_path = tmp_path / "release_create.ini"
+        config_path.write_text(
+            "[Release]\nscope = a\n[GitHubRelease]\nenabled = true\nassets = target/app.exe\n"
+        )
+
+        config = CreateConfig.from_ini_file(config_path)
+
+        assert config.github_release is not None
+        assert config.github_release.assets == ["target/app.exe"]
+        assert config.github_release.repo is None
+        assert config.github_release.tag_format == "{label}"
+        assert config.github_release.title_format == "{label}"
+
+    def test_github_release_full_overrides(self, tmp_path: Path) -> None:
+        config_path = tmp_path / "release_create.ini"
+        config_path.write_text(
+            "[Release]\nscope = a\n"
+            "[GitHubRelease]\n"
+            "enabled = true\n"
+            "assets = target/app.exe, target/app.zip\n"
+            "repo = owner/name\n"
+            "tag_format = v{label}\n"
+            "title_format = App {label}\n"
+        )
+
+        config = CreateConfig.from_ini_file(config_path)
+
+        assert config.github_release is not None
+        assert config.github_release.assets == ["target/app.exe", "target/app.zip"]
+        assert config.github_release.repo == "owner/name"
+        assert config.github_release.tag_format == "v{label}"
+        assert config.github_release.title_format == "App {label}"
+
+    def test_github_release_enabled_without_assets_raises(self, tmp_path: Path) -> None:
+        config_path = tmp_path / "release_create.ini"
+        config_path.write_text("[Release]\nscope = a\n[GitHubRelease]\nenabled = true\n")
+
+        with pytest.raises(ConfigurationError, match="assets"):
             CreateConfig.from_ini_file(config_path)

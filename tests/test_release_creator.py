@@ -5,8 +5,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from release_tool.create_config import BatsConfig, CreateConfig
+from release_tool.create_config import BatsConfig, CreateConfig, PublishChannel
 from release_tool.exceptions import ReleaseCreateError
+from release_tool.github_publisher import GitHubReleaseConfig
 from release_tool.release_creator import ReleaseCreator
 
 
@@ -17,6 +18,9 @@ def make_config(
     versioning: str = "build",
     label_format: str = "{version}_{build}",
     notes_label_format: str = "{version}_{build}",
+    build_self_contained: bool = False,
+    publish_channels: list[PublishChannel] | None = None,
+    github_release: GitHubReleaseConfig | None = None,
 ) -> CreateConfig:
     bats = BatsConfig(
         version_get="tools/version_get.bat",
@@ -37,7 +41,10 @@ def make_config(
         versioning=versioning,
         previous_version_file="tools/previous_version.txt",
         english_only=english_only,
+        build_self_contained=build_self_contained,
+        publish_channels=publish_channels or [],
         bats=bats,
+        github_release=github_release,
     )
 
 
@@ -48,6 +55,20 @@ def ran(mock_run: MagicMock) -> list[list[str]]:
 
 def uses(cmds: list[list[str]], needle: str) -> bool:
     return any(needle in part for cmd in cmds for part in cmd)
+
+
+def fail_on_build(cmd: list[str], cwd: Path, dry_run: bool = False) -> None:
+    """run_command side_effect: raise once the build bat itself is invoked."""
+    if any(part.endswith("build.bat") for part in cmd):
+        raise ReleaseCreateError("build blew up")
+
+
+def two_publish_channels() -> list[PublishChannel]:
+    """A Website + Google Play channel pair, shared by the multi-channel tests."""
+    return [
+        PublishChannel(name="Website", bat="tools/publish_website.bat"),
+        PublishChannel(name="Google Play", bat="tools/publish_play.bat"),
+    ]
 
 
 def label_capture(mock_capture: MagicMock, version: str = "1.0.0", build: str = "21") -> None:
@@ -233,11 +254,6 @@ class TestCreateFlow:
     ) -> None:
         label_capture(mock_capture)
         prepare_notes(tmp_path)
-
-        def fail_on_build(cmd: list[str], cwd: Path, dry_run: bool = False) -> None:
-            if any(part.endswith("build.bat") for part in cmd):
-                raise ReleaseCreateError("build blew up")
-
         mock_run.side_effect = fail_on_build
         creator = ReleaseCreator(make_config(), tmp_path, dry_run=False)
 
@@ -309,3 +325,210 @@ class TestCreateFlow:
         assert uses(cmds, "build.bat")
         assert not uses(cmds, "publish")
         assert not uses(cmds, "git")  # commit declined above
+
+
+class TestBuildSelfContained:
+    """A monolithic build bat owns increment/translate/rollback itself."""
+
+    @patch("release_tool.release_creator.run_command")
+    @patch("release_tool.release_creator.capture_command")
+    def test_skips_increment_and_translate(
+        self, mock_capture: MagicMock, mock_run: MagicMock, tmp_path: Path
+    ) -> None:
+        label_capture(mock_capture)
+        prepare_notes(tmp_path)
+
+        creator = ReleaseCreator(make_config(build_self_contained=True), tmp_path, dry_run=True)
+        creator.create(internal=False)
+
+        cmds = ran(mock_run)
+        assert not uses(cmds, "build_increment.bat")
+        assert not uses(cmds, "translate.bat")
+        assert uses(cmds, "build.bat")
+
+    @patch("release_tool.release_creator.run_command")
+    @patch("release_tool.release_creator.capture_command")
+    def test_build_failure_does_not_decrement(
+        self, mock_capture: MagicMock, mock_run: MagicMock, tmp_path: Path
+    ) -> None:
+        label_capture(mock_capture)
+        prepare_notes(tmp_path)
+        mock_run.side_effect = fail_on_build
+        creator = ReleaseCreator(
+            make_config(build_self_contained=True), tmp_path, dry_run=False
+        )
+
+        with pytest.raises(ReleaseCreateError, match="build blew up"):
+            creator.create(internal=False)
+
+        assert not uses(ran(mock_run), "build_decrement.bat")
+
+
+class TestMultiChannelPublish:
+    """Each publish channel is gated independently."""
+
+    @patch("builtins.input", side_effect=["y", "n", "n"])  # website yes, play no, commit no
+    @patch("release_tool.release_creator.run_command")
+    @patch("release_tool.release_creator.capture_command")
+    def test_each_channel_gated_independently(
+        self,
+        mock_capture: MagicMock,
+        mock_run: MagicMock,
+        mock_input: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        label_capture(mock_capture)
+        prepare_notes(tmp_path)
+        channels = two_publish_channels()
+
+        creator = ReleaseCreator(
+            make_config(publish=None, publish_channels=channels), tmp_path, dry_run=False
+        )
+        creator.create(internal=False)
+
+        cmds = ran(mock_run)
+        assert uses(cmds, "publish_website.bat")
+        assert not uses(cmds, "publish_play.bat")
+
+    @patch("release_tool.release_creator.run_command")
+    @patch("release_tool.release_creator.capture_command")
+    def test_dry_run_runs_every_channel(
+        self, mock_capture: MagicMock, mock_run: MagicMock, tmp_path: Path
+    ) -> None:
+        label_capture(mock_capture)
+        prepare_notes(tmp_path)
+        channels = two_publish_channels()
+
+        creator = ReleaseCreator(
+            make_config(publish=None, publish_channels=channels), tmp_path, dry_run=True
+        )
+        creator.create(internal=False)
+
+        cmds = ran(mock_run)
+        assert uses(cmds, "publish_website.bat")
+        assert uses(cmds, "publish_play.bat")
+
+
+class TestGitHubReleaseGate:
+    """The GitHub Release gate runs after commit/tag/push, and only if that ran."""
+
+    @patch("release_tool.release_creator.GitHubPublisher")
+    @patch("builtins.input", return_value="n")  # commit declined
+    @patch("release_tool.release_creator.run_command")
+    @patch("release_tool.release_creator.capture_command")
+    def test_no_config_skips_gate(
+        self,
+        mock_capture: MagicMock,
+        mock_run: MagicMock,
+        mock_input: MagicMock,
+        mock_publisher_class: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        label_capture(mock_capture)
+        prepare_notes(tmp_path)
+
+        creator = ReleaseCreator(make_config(publish=None), tmp_path, dry_run=False)
+        creator.create(internal=False)
+
+        mock_publisher_class.assert_not_called()
+
+    @patch("release_tool.release_creator.GitHubPublisher")
+    @patch("builtins.input", return_value="n")  # commit declined -> gate never offered
+    @patch("release_tool.release_creator.run_command")
+    @patch("release_tool.release_creator.capture_command")
+    def test_commit_declined_skips_gate(
+        self,
+        mock_capture: MagicMock,
+        mock_run: MagicMock,
+        mock_input: MagicMock,
+        mock_publisher_class: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        label_capture(mock_capture)
+        prepare_notes(tmp_path)
+        gh_config = GitHubReleaseConfig(enabled=True, assets=["target/app.exe"])
+
+        creator = ReleaseCreator(
+            make_config(publish=None, github_release=gh_config), tmp_path, dry_run=False
+        )
+        creator.create(internal=False)
+
+        mock_publisher_class.assert_not_called()
+
+    @patch("release_tool.release_creator.GitHubPublisher")
+    @patch("builtins.input", side_effect=["y", "n"])  # commit yes, github release no
+    @patch("release_tool.release_creator.run_command")
+    @patch("release_tool.release_creator.capture_command")
+    def test_github_release_declined(
+        self,
+        mock_capture: MagicMock,
+        mock_run: MagicMock,
+        mock_input: MagicMock,
+        mock_publisher_class: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        label_capture(mock_capture)
+        prepare_notes(tmp_path)
+        gh_config = GitHubReleaseConfig(enabled=True, assets=["target/app.exe"])
+
+        creator = ReleaseCreator(
+            make_config(publish=None, github_release=gh_config), tmp_path, dry_run=False
+        )
+        creator.create(internal=False)
+
+        mock_publisher_class.return_value.publish.assert_not_called()
+
+    @patch("release_tool.release_creator.GitHubPublisher")
+    @patch("builtins.input", side_effect=["y", "y"])  # commit yes, github release yes
+    @patch("release_tool.release_creator.run_command")
+    @patch("release_tool.release_creator.capture_command")
+    def test_github_release_published_after_commit(
+        self,
+        mock_capture: MagicMock,
+        mock_run: MagicMock,
+        mock_input: MagicMock,
+        mock_publisher_class: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        label_capture(mock_capture)
+        prepare_notes(tmp_path)
+        (tmp_path / "release_notes" / "1.0.0_22" / "en.json").write_text(
+            '{"title": "1.0.0_22", "notes": ["First"]}'
+        )
+        gh_config = GitHubReleaseConfig(
+            enabled=True, repo="owner/name", assets=["target/app.exe"], tag_format="v{label}"
+        )
+
+        creator = ReleaseCreator(
+            make_config(publish=None, github_release=gh_config), tmp_path, dry_run=False
+        )
+        creator.create(internal=False)
+
+        mock_publisher_class.assert_called_once_with(gh_config)
+        publish_call = mock_publisher_class.return_value.publish.call_args
+        assert publish_call.args[0] == "v1.0.0_22"
+        assert publish_call.args[1] == [tmp_path / "target" / "app.exe"]
+        assert publish_call.kwargs["cwd"] == tmp_path
+
+    @patch("release_tool.release_creator.GitHubPublisher")
+    @patch("builtins.input", side_effect=["y", "y"])  # commit yes, github release yes
+    @patch("release_tool.release_creator.run_command")
+    @patch("release_tool.release_creator.capture_command")
+    def test_internal_release_skips_notes(
+        self,
+        mock_capture: MagicMock,
+        mock_run: MagicMock,
+        mock_input: MagicMock,
+        mock_publisher_class: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        label_capture(mock_capture)
+        gh_config = GitHubReleaseConfig(enabled=True, assets=["target/app.exe"])
+
+        creator = ReleaseCreator(
+            make_config(publish=None, github_release=gh_config), tmp_path, dry_run=False
+        )
+        creator.create(internal=True)
+
+        publish_call = mock_publisher_class.return_value.publish.call_args
+        assert publish_call.kwargs["notes"] is None

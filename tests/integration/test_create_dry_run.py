@@ -95,3 +95,35 @@ def test_create_dry_run_semver_resolves(tmp_path: Path, monkeypatch: pytest.Monk
     exit_code = main(["create", "release_create.ini", "--dry-run"])
 
     assert exit_code == 0
+
+
+def _make_self_contained_multichannel_project(root: Path) -> None:
+    """A monolithic build bat (bump+translate+build) + two gated publish channels."""
+    tools = root / "tools"
+    tools.mkdir()
+    (tools / "version_get.bat").write_text("@echo off\necho 1.0.0\n")
+    (tools / "build_get.bat").write_text("@echo off\necho 21\n")
+    for name in ("build_release", "publish_website", "publish_play"):
+        (tools / f"{name}.bat").write_text("@echo off\n")
+
+    notes = root / "release_notes" / "1.0.0_22"
+    notes.mkdir(parents=True)
+    (notes / "en.json").write_text('{"notes": ["x"]}')
+
+    (root / "release_create.ini").write_text(
+        "[Release]\nscope = demo\npublish_platform = Website, Google Play\n"
+        "build_self_contained = true\n"
+        "[Bats]\nbuild = tools/build_release.bat\n"
+        "publish = tools/publish_website.bat, tools/publish_play.bat\n"
+    )
+
+
+def test_create_dry_run_self_contained_multichannel_resolves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_self_contained_multichannel_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(["create", "release_create.ini", "--dry-run"])
+
+    assert exit_code == 0

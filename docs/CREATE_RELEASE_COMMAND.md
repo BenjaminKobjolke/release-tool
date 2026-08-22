@@ -61,25 +61,38 @@ release-tool create --verbose
    `codex exec --dangerously-bypass-approvals-and-sandbox` (authors **only**
    `en.json` — no translate, no build). If the file still doesn't appear, the run
    aborts with a message to author it manually or run `/release:create-release-notes`.
-3. **Bump the build** — `build_increment`.
-4. **Translate** — `translate` bat (skipped when `english_only = true`).
+3. **Bump the build** — `build_increment`. **Skipped when `build_self_contained =
+   true`** (see "Self-contained build bats").
+4. **Translate** — `translate` bat (skipped when `english_only = true`, and skipped
+   when `build_self_contained = true`).
 5. **Build** — `build` bat. **If it fails, `build_decrement` rolls the counter
-   back** so the label doesn't drift ahead, then the run aborts.
+   back** so the label doesn't drift ahead, then the run aborts. Skipped when
+   `build_self_contained = true` — the build bat is trusted to roll back itself.
 6. **Record the previous version** — write the previous (online) label to
    `previous_version_file` (default `tools/previous_version.txt`). The publish bat
    reads this for `--previous-version` backup naming, so it never needs
    hand-editing — whether publish runs now (step 7) or by hand later. Gitignore
    this file.
-7. **Publish** (optional gate) — if a `publish` bat is configured you are asked
-   `Publish <label> to <platform>? [y/N]`. `y` → run the publish bat (no arguments;
-   it reads `previous_version_file`). `n`, or no publish bat → skip. **Independent
-   of step 8.**
+7. **Publish** (optional gate, one per channel) — for each configured `publish` bat
+   you are asked `Publish <label> to <platform>? [y/N]`. `y` → run that bat (no
+   arguments; it reads `previous_version_file`). `n` → skip that channel and move to
+   the next. No publish bats configured → skip step 7 entirely. **Independent of
+   step 8.** See "Publish channels" for multi-channel releases (e.g. a website
+   installer and a Play Store upload from the same build).
 8. **Commit + tag + push** (optional gate) — asked
    `Commit, tag and push <label>? [y/N]`. `y` → `git add -A` (so a fresh
    `release_notes/<label>/` is included), `git commit -m "<TYPE> (<scope>): <label>"`,
    `git tag <label>`, `git push`, `git push origin <label>`. `<TYPE>` is `RELEASE`,
    or `INTERNAL` with `--internal`. **Independent of step 7** — declining publish
    still lets you commit, and vice versa.
+9. **GitHub Release** (optional gate, only offered if step 8 actually ran) — with
+   a `[GitHubRelease]` section present and `enabled = true`, asked
+   `Create GitHub Release <tag>? [y/N]`. `y` → uploads `assets` (via the `gh` CLI)
+   to a release for the just-pushed tag, rendering `en.json` as the release notes
+   (skipped for `--internal`). No `[GitHubRelease]` section, `enabled = false`, or
+   step 8 declined → skipped. See
+   [`docs/GITHUB_RELEASE_COMMAND.md`](GITHUB_RELEASE_COMMAND.md) for the
+   underlying `github-release` subcommand.
 
 ## Versioning modes
 
@@ -94,6 +107,39 @@ release-tool create --verbose
   `build_increment`/`build_decrement` are the project's version bump/rollback bats
   (e.g. `increment_version.bat` writing `version.txt`). Use for projects whose
   release *is* a patch bump.
+
+## Self-contained build bats
+
+Some projects' `build` bat is already a monolith: it bumps the build number,
+translates release notes, builds the artifact, *and* rolls the version back on
+failure — all in one script (a preflight/lock/rollback pattern, as opposed to a
+thin build-only bat). Pointing `create`'s own `build_increment` and `translate`
+at the same project would double-bump the version and translate twice.
+
+Set `build_self_contained = true` in that case. `create` then only reads
+`version_get`/`build_get` (read-only, to compute the shipping label) and calls
+`build` — it does not call `build_increment`, `translate`, or `build_decrement`
+at all, even when `build` fails. `build_increment`/`build_decrement`/`translate`
+can be omitted from `[Bats]` entirely.
+
+## Publish channels
+
+`publish` (and `publish_platform`) accept a **comma-separated list** for
+releases that ship to more than one place — e.g. a Windows installer uploaded to
+a website and an Android bundle uploaded to the Play Store from the same build.
+Each bat gets its own gate, prompted and skippable independently:
+
+```ini
+[Release]
+publish_platform = Website, Google Play
+
+[Bats]
+publish = tools/publish_website.bat, tools/publish_play.bat
+```
+
+Names and bats pair up by position; a bat with no matching name falls back to
+"the release target". A single value on both sides (or `publish_platform` left
+at its default) behaves exactly like the original one-channel `publish`.
 
 ## Configuration — `release_create.ini`
 
@@ -122,20 +168,32 @@ publish_platform = Google Play Store
 ; versioning = build                 ; build | semver (see "Versioning modes")
 ; previous_version_file = tools/previous_version.txt  ; where the online version is recorded
 ; english_only = false               ; true => skip the translate step
+; build_self_contained = false       ; true => build bat owns bump/translate/rollback itself (see "Self-contained build bats")
 
 [Bats]
 ; All paths are relative to the project root. Omit a line to keep the default.
 ; version_get     = tools/version_get.bat
-; build_get       = tools/build_get.bat       ; unused in semver mode
-; build_increment = tools/build_increment.bat ; version bump bat in semver mode
-; build_decrement = tools/build_decrement.bat ; version rollback bat in semver mode
-; translate       = tools/translator_app-release-notes.bat
+; build_get       = tools/build_get.bat       ; unused in semver mode / ignored under build_self_contained
+; build_increment = tools/build_increment.bat ; version bump bat in semver mode; unused under build_self_contained
+; build_decrement = tools/build_decrement.bat ; version rollback bat in semver mode; unused under build_self_contained
+; translate       = tools/translator_app-release-notes.bat  ; unused under build_self_contained
 ; build           = tools/build_release.bat
 
-; publish has NO default. Set it to offer the publish gate. The bat is called
+; publish has NO default. Set it to offer the publish gate. Each bat is called
 ; with NO arguments — it reads previous_version_file for --previous-version.
-; Omitting publish just skips the publish gate; commit/tag/push is still offered.
+; Comma-separate for multiple gated channels (see "Publish channels"), paired
+; by position with publish_platform. Omitting publish just skips the publish
+; gate; commit/tag/push is still offered.
 publish = tools/publish_release.bat
+
+; Optional: offer a GitHub Release gate after commit/tag/push (step 9). Omit
+; this whole section to skip it. Requires the `gh` CLI (`gh auth login` once).
+; [GitHubRelease]
+; enabled = true
+; assets = target/fmanSetup.exe        ; required when enabled; comma-separated
+; repo = OWNER/NAME                    ; only if the cwd's git remote can't resolve it
+; tag_format = {label}                 ; e.g. v{label} for a "v" prefix
+; title_format = {label}
 ```
 
 ### Keys
@@ -151,13 +209,19 @@ publish = tools/publish_release.bat
 | `[Release]` | `versioning` | `build` | `build` (counter) or `semver` (patch bump). See "Versioning modes". |
 | `[Release]` | `previous_version_file` | `tools/previous_version.txt` | Where the previous (online) version is recorded for the publish bat. Gitignore it. |
 | `[Release]` | `english_only` | `false` | `true` skips the translate step. |
+| `[Release]` | `build_self_contained` | `false` | `true` skips `build_increment`/`translate`/`build_decrement` — the `build` bat owns them. See "Self-contained build bats". |
 | `[Bats]` | `version_get` | `tools/version_get.bat` | Prints the version. |
 | `[Bats]` | `build_get` | `tools/build_get.bat` | Prints the current build integer. |
-| `[Bats]` | `build_increment` | `tools/build_increment.bat` | Bumps the build counter. |
-| `[Bats]` | `build_decrement` | `tools/build_decrement.bat` | Rolls the build counter back (on build failure). |
-| `[Bats]` | `translate` | `tools/translator_app-release-notes.bat` | Generates non-English locales. |
+| `[Bats]` | `build_increment` | `tools/build_increment.bat` | Bumps the build counter. Unused under `build_self_contained`. |
+| `[Bats]` | `build_decrement` | `tools/build_decrement.bat` | Rolls the build counter back (on build failure). Unused under `build_self_contained`. |
+| `[Bats]` | `translate` | `tools/translator_app-release-notes.bat` | Generates non-English locales. Unused under `build_self_contained`. |
 | `[Bats]` | `build` | `tools/build_release.bat` | Builds + bundles the artifact. |
-| `[Bats]` | `publish` | *(none)* | Offers the publish gate; the bat reads `previous_version_file`. **Absent/empty → skip publish only** (commit/tag/push still offered). |
+| `[Bats]` | `publish` | *(none)* | Offers a publish gate; each bat reads `previous_version_file`. Comma-separate for multiple channels, paired by position with `publish_platform` (see "Publish channels"). **Absent/empty → skip publish only** (commit/tag/push still offered). |
+| `[GitHubRelease]` | `enabled` | `false` | `true` offers the GitHub Release gate (step 9). Section absent → same as `false`. |
+| `[GitHubRelease]` | `assets` | *(none)* | Required when enabled. Comma-separated asset paths, relative to the project root. |
+| `[GitHubRelease]` | `repo` | *(from git remote)* | `OWNER/NAME`. Only needed if the working dir's git remote can't resolve it. |
+| `[GitHubRelease]` | `tag_format` | `{label}` | Tag to attach the release to. |
+| `[GitHubRelease]` | `title_format` | `{label}` | Release title. |
 
 ## Setup per project
 

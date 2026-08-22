@@ -10,8 +10,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .bat_runner import bat_command, capture_command, run_command
-from .create_config import CreateConfig
+from .create_config import CreateConfig, PublishChannel
 from .exceptions import ReleaseCreateError
+from .github_publisher import GitHubPublisher, render_notes_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -59,14 +60,19 @@ class ReleaseCreator:
 
         # Bump first, ship next: the counter/version is now the about-to-ship
         # label. If a later step fails, roll it back so it doesn't drift ahead.
-        self._run_bat(self.config.bats.build_increment)
+        # A self-contained build bat (a monolithic release script) already does
+        # its own bump/translate/rollback, so create must not repeat any of it.
+        self_contained = self.config.build_self_contained
+        if not self_contained:
+            self._run_bat(self.config.bats.build_increment)
         try:
-            if not self.config.english_only:
+            if not self.config.english_only and not self_contained:
                 self._run_bat(self.config.bats.translate)
             self._run_bat(self.config.bats.build)
         except ReleaseCreateError:
-            logger.error("Build step failed; rolling back the version/build counter.")
-            self._run_bat(self.config.bats.build_decrement)
+            if not self_contained:
+                logger.error("Build step failed; rolling back the version/build counter.")
+                self._run_bat(self.config.bats.build_decrement)
             raise
 
         # Record the previous (online) version so the publish bat can name its
@@ -75,7 +81,8 @@ class ReleaseCreator:
         # Two independent gates: shipping and recording the release are separate
         # decisions, so declining one does not skip the other.
         self._maybe_publish(labels)
-        self._maybe_commit(labels.shipping, internal)
+        if self._maybe_commit(labels.shipping, internal):
+            self._maybe_github_release(labels, internal)
         return True
 
     def _run_bat(self, bat_path: str) -> None:
@@ -169,33 +176,44 @@ class ReleaseCreator:
         target.write_text(f"{previous}\n", encoding="utf-8")
         logger.info(f"Wrote previous version {previous!r} to {target}")
 
+    def _publish_channels(self) -> list[PublishChannel]:
+        """The configured publish gates: multi-channel config, or the legacy
+        single-bat fields for callers that construct CreateConfig directly."""
+        if self.config.publish_channels:
+            return self.config.publish_channels
+        if self.config.bats.publish:
+            name = self.config.publish_platform or "the release target"
+            return [PublishChannel(name=name, bat=self.config.bats.publish)]
+        return []
+
     def _maybe_publish(self, labels: ReleaseLabels) -> None:
-        """Ask whether to publish; run the publish bat (which reads the version file)."""
-        publish_bat = self.config.bats.publish
-        if not publish_bat:
+        """Ask whether to publish each configured channel independently."""
+        channels = self._publish_channels()
+        if not channels:
             logger.info("No publish bat configured; skipping publish.")
             return
 
-        platform = self.config.publish_platform or "the release target"
-        prompt = f"Publish {labels.shipping} to {platform}? [y/N]"
-        if self.dry_run:
-            logger.info(f"[DRY RUN] Would prompt: {prompt}")
-            self._run_bat(publish_bat)
-            return
+        for channel in channels:
+            prompt = f"Publish {labels.shipping} to {channel.name}? [y/N]"
+            if self.dry_run:
+                logger.info(f"[DRY RUN] Would prompt: {prompt}")
+                self._run_bat(channel.bat)
+                continue
 
-        if input(f"{prompt}: ").strip().lower() != "y":
-            logger.info("Publish declined by user.")
-            return
-        self._run_bat(publish_bat)
+            if input(f"{prompt}: ").strip().lower() != "y":
+                logger.info(f"Publish to {channel.name} declined by user.")
+                continue
+            self._run_bat(channel.bat)
 
-    def _maybe_commit(self, label: str, internal: bool) -> None:
-        """Ask whether to commit, tag and push the release."""
+    def _maybe_commit(self, label: str, internal: bool) -> bool:
+        """Ask whether to commit, tag and push the release. Returns True if it ran —
+        the GitHub Release gate depends on the tag having actually been pushed."""
         prompt = f"Commit, tag and push {label}? [y/N]"
         if self.dry_run:
             logger.info(f"[DRY RUN] Would prompt: {prompt}")
         elif input(f"{prompt}: ").strip().lower() != "y":
             logger.info("Commit/tag/push declined by user.")
-            return
+            return False
 
         release_type = INTERNAL_TYPE if internal else RELEASE_TYPE
         message = f"{release_type} ({self.config.scope}): {label}"
@@ -205,3 +223,40 @@ class ReleaseCreator:
         run_command(["git", "tag", label], self.root, self.dry_run)
         run_command(["git", "push"], self.root, self.dry_run)
         run_command(["git", "push", "origin", label], self.root, self.dry_run)
+        return True
+
+    def _maybe_github_release(self, labels: ReleaseLabels, internal: bool) -> None:
+        """Ask whether to create/update the GitHub Release for the just-pushed tag."""
+        cfg = self.config.github_release
+        if cfg is None:
+            logger.info("No GitHub Release configured; skipping.")
+            return
+
+        tag = self._format_label(cfg.tag_format, labels)
+        title = self._format_label(cfg.title_format, labels)
+        prompt = f"Create GitHub Release {tag}? [y/N]"
+        if self.dry_run:
+            logger.info(f"[DRY RUN] Would prompt: {prompt}")
+        elif input(f"{prompt}: ").strip().lower() != "y":
+            logger.info("GitHub Release declined by user.")
+            return
+
+        assets = [self.root / asset for asset in cfg.assets]
+        notes = None
+        if not internal:
+            notes_path = self.root / self.config.notes_dir / labels.notes / self.config.en_file
+            if notes_path.exists():
+                notes = render_notes_markdown(notes_path)
+
+        GitHubPublisher(cfg).publish(
+            tag, assets, title=title, notes=notes, cwd=self.root, dry_run=self.dry_run
+        )
+
+    @staticmethod
+    def _format_label(fmt: str, labels: ReleaseLabels) -> str:
+        """Resolve a tag/title format string against the shipping label.
+
+        version/build/label all resolve to the same shipping string — ReleaseLabels
+        does not retain the version and build parts separately once combined.
+        """
+        return fmt.format(version=labels.shipping, build=labels.shipping, label=labels.shipping)

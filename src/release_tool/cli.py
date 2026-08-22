@@ -9,6 +9,7 @@ from pathlib import Path
 from .config import ReleaseConfig
 from .create_config import CreateConfig
 from .exceptions import ConfigurationError, FTPError, ReleaseToolError
+from .github_publisher import GitHubPublisher, GitHubReleaseConfig, render_notes_markdown
 from .release_creator import ReleaseCreator
 from .release_manager import ReleaseManager
 
@@ -156,11 +157,67 @@ def run_create(args: list[str]) -> int:
     return _guarded(logger, action)
 
 
+def parse_github_release_args(args: list[str]) -> argparse.Namespace:
+    """Parse arguments for the `github-release` subcommand."""
+    parser = argparse.ArgumentParser(
+        prog="release-tool github-release",
+        description="Create a GitHub Release for a tag and attach assets",
+    )
+    parser.add_argument("tag", help="Git tag the release attaches to (e.g. v1.7.5)")
+    parser.add_argument("assets", nargs="*", type=Path, help="Asset files to attach")
+    parser.add_argument(
+        "--repo",
+        help="OWNER/NAME. Required unless the cwd's git remote resolves the repo.",
+    )
+    parser.add_argument("--title", help="Release title (default: the tag)")
+    notes_group = parser.add_mutually_exclusive_group()
+    notes_group.add_argument("--notes", help="Release notes as literal text")
+    notes_group.add_argument("--notes-file", type=Path, help="Path to a markdown notes file")
+    notes_group.add_argument(
+        "--notes-json", type=Path, help="XIDA release-notes en.json to render as markdown"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview the gh command without running it",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable debug logging",
+    )
+    return parser.parse_args(args)
+
+
+def run_github_release(args: list[str]) -> int:
+    """Execute the `github-release` (publish-a-release) workflow."""
+    parsed = parse_github_release_args(args)
+    setup_logging(parsed.verbose)
+    logger = logging.getLogger(__name__)
+
+    def action() -> bool:
+        notes = render_notes_markdown(parsed.notes_json) if parsed.notes_json else parsed.notes
+        config = GitHubReleaseConfig(enabled=True, repo=parsed.repo)
+        GitHubPublisher(config).publish(
+            parsed.tag,
+            parsed.assets,
+            title=parsed.title,
+            notes=notes,
+            notes_file=parsed.notes_file,
+            dry_run=parsed.dry_run,
+        )
+        return True
+
+    return _guarded(logger, action)
+
+
 def main(args: list[str] | None = None) -> int:
     """Main entry point."""
     argv = sys.argv[1:] if args is None else args
     if argv and argv[0] == "create":
         return run_create(argv[1:])
+    if argv and argv[0] == "github-release":
+        return run_github_release(argv[1:])
 
     parsed_args = parse_args(args)
     return run(parsed_args)

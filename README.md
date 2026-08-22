@@ -121,16 +121,27 @@ release-tool create --dry-run
 ### What it does
 
 1. **Compute the next label** — `<version>_<build+1>` (build first, ship next).
+   Set `versioning = semver` to bump the version's last segment instead of a
+   build counter (e.g. `0.1.6` → `0.1.7`) — see
+   [`docs/CREATE_RELEASE_COMMAND.md`](docs/CREATE_RELEASE_COMMAND.md#versioning-modes).
 2. **Ensure release notes** (skipped with `--internal`) — if `en.json` is missing
    for the shipping label, author it headlessly via
    `codex exec --dangerously-bypass-approvals-and-sandbox`; abort if it still
    doesn't appear.
 3. **Bump the build**, then **translate** (unless `english_only`), then **build**.
-   If build fails, the build counter is rolled back automatically.
-4. **Publish** — the single interactive gate. If a publish bat is configured you
-   are asked once (`Publish <label> to <platform>? [y/N]`). Decline, or configure
-   no publish bat, and it stops after the build (no commit, no tag).
+   If build fails, the build counter is rolled back automatically. Set
+   `build_self_contained = true` when the project's `build` bat already does its
+   own bump/translate/rollback (a monolithic release script) — `create` then only
+   reads `version_get`/`build_get` for the label and just calls `build`.
+4. **Publish** — one interactive gate per configured channel. `publish` (and
+   `publish_platform`) can be a comma-separated list to gate several targets from
+   the same release, e.g. a website upload and a Play Store upload
+   (`Publish <label> to <platform>? [y/N]` per channel). Decline a channel to skip
+   it; declining/omitting all of them stops after the build (no commit, no tag).
 5. **Commit + tag** — `RELEASE (<scope>): <label>` (or `INTERNAL (...)`).
+6. **GitHub Release** (optional gate, only after step 5 runs) — with a
+   `[GitHubRelease]` section enabled, asks to create a GitHub Release for the
+   just-pushed tag and upload its assets. See "Publish a GitHub Release" below.
 
 ### `release_create.ini`
 
@@ -140,21 +151,42 @@ defaults (see `examples/release_create.ini`):
 ```ini
 [Release]
 scope = app                          ; commit scope
-publish_platform = Google Play Store ; named in the publish prompt
+publish_platform = Google Play Store ; named in the publish prompt (comma-list for multiple channels)
 ; notes_dir = release_notes          ; optional overrides shown with defaults
 ; en_file = en.json
 ; label_format = {version}_{build}
+; notes_label_format = {version}_{build}  ; defaults to label_format; set when the notes folder must differ
+; versioning = build                      ; build (counter) or semver (bump version's last segment)
 ; english_only = false
+; build_self_contained = false       ; true => build bat owns bump/translate/rollback itself
 
 [Bats]
 ; All paths relative to the project root; omit a line to keep the default.
 ; version_get / build_get / build_increment / build_decrement / translate / build
 ; publish has NO default — set it to enable publish + commit + tag, omit to build-and-stop.
+; Comma-separate for multiple gated channels, paired by position with publish_platform.
 publish = tools/publish_release.bat
 ```
 
 The legacy publish invocation (`release-tool <file> <config> ...`) is unchanged
 and continues to work exactly as before.
+
+## Publish a GitHub Release (`github-release` subcommand)
+
+Creates a GitHub Release for an existing tag and attaches asset files, via the
+`gh` CLI (`gh auth login` once, no other runtime dependency). See
+[`docs/GITHUB_RELEASE_COMMAND.md`](docs/GITHUB_RELEASE_COMMAND.md) for full usage.
+
+```bash
+release-tool github-release v1.7.5 target\fmanSetup.exe \
+    --repo OWNER/NAME --notes-json release_notes\1.7.5_3\en.json
+```
+
+Re-running against a tag that already has a release re-uploads the assets
+(`gh release upload ... --clobber`) instead of failing. It's also available as an
+opt-in gate inside `create` via a `[GitHubRelease]` section in `release_create.ini`
+(`enabled`, `assets`, `repo`, `tag_format`, `title_format` — see
+`examples/release_create.ini`).
 
 ## Development
 

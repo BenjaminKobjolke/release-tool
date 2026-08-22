@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .exceptions import ConfigurationError
+from .github_publisher import GitHubReleaseConfig
 
 DEFAULT_SCOPE = "app"
 DEFAULT_NOTES_DIR = "release_notes"
@@ -52,6 +53,19 @@ class BatsConfig:
     publish: str | None  # None => build-and-stop (no publish, no commit/tag)
 
 
+@dataclass(frozen=True)
+class PublishChannel:
+    """One gated publish target: a human name and the bat that ships it.
+
+    `publish` can list several bats (comma-separated); each is offered its own
+    y/N gate under its own name, e.g. a Windows-website upload and a Play Store
+    upload for the same release.
+    """
+
+    name: str
+    bat: str
+
+
 @dataclass
 class CreateConfig:
     """Configuration for the full-release `create` workflow."""
@@ -68,7 +82,15 @@ class CreateConfig:
     versioning: str
     previous_version_file: str
     english_only: bool
+    # True when the `build` bat already bumps/translates/rolls back itself (a
+    # monolithic release script). create then only reads version/build for the
+    # label and skips its own build_increment/translate/build_decrement steps.
+    build_self_contained: bool
+    # One gate per publish bat. Empty when no publish bat is configured.
+    publish_channels: list[PublishChannel]
     bats: BatsConfig
+    # None => no GitHub Release gate offered after commit/tag/push.
+    github_release: GitHubReleaseConfig | None = None
 
     @classmethod
     def from_ini_file(cls, path: Path) -> "CreateConfig":
@@ -85,12 +107,8 @@ class CreateConfig:
         release_section = parser["Release"] if "Release" in parser else {}
         bats_section = parser["Bats"] if "Bats" in parser else {}
 
-        try:
-            english_only = _getboolean(parser, "Release", "english_only", False)
-        except ValueError as e:
-            raise ConfigurationError(
-                f"Invalid 'english_only' value (expected true/false): {e}"
-            ) from e
+        english_only = _getboolean(parser, "Release", "english_only", False)
+        build_self_contained = _getboolean(parser, "Release", "build_self_contained", False)
 
         versioning = (
             release_section.get("versioning", DEFAULT_VERSIONING).strip().lower()
@@ -102,7 +120,15 @@ class CreateConfig:
                 f"Must be one of {sorted(VALID_VERSIONING)}."
             )
 
-        publish_raw = bats_section.get("publish", "").strip()
+        publish_bats = _split_list(bats_section.get("publish", ""))
+        publish_names = _split_list(release_section.get("publish_platform", ""))
+        publish_channels = [
+            PublishChannel(
+                name=publish_names[i] if i < len(publish_names) and publish_names[i] else "the release target",
+                bat=bat,
+            )
+            for i, bat in enumerate(publish_bats)
+        ]
         bats = BatsConfig(
             version_get=bats_section.get("version_get", DEFAULT_BATS["version_get"]).strip(),
             build_get=bats_section.get("build_get", DEFAULT_BATS["build_get"]).strip(),
@@ -114,7 +140,8 @@ class CreateConfig:
             ).strip(),
             translate=bats_section.get("translate", DEFAULT_BATS["translate"]).strip(),
             build=bats_section.get("build", DEFAULT_BATS["build"]).strip(),
-            publish=publish_raw or None,
+            # First configured channel, kept for callers that only care about one bat.
+            publish=publish_bats[0] if publish_bats else None,
         )
 
         label_format = (
@@ -124,6 +151,20 @@ class CreateConfig:
         notes_label_format = (
             release_section.get("notes_label_format", "").strip() or label_format
         )
+
+        github_release = None
+        if _getboolean(parser, "GitHubRelease", "enabled", False):
+            gh_section = parser["GitHubRelease"]
+            assets = _split_list(gh_section.get("assets", ""))
+            if not assets:
+                raise ConfigurationError("GitHubRelease 'assets' is required when enabled")
+            github_release = GitHubReleaseConfig(
+                enabled=True,
+                repo=gh_section.get("repo", "").strip() or None,
+                assets=assets,
+                tag_format=gh_section.get("tag_format", "").strip() or "{label}",
+                title_format=gh_section.get("title_format", "").strip() or "{label}",
+            )
 
         return cls(
             scope=release_section.get("scope", DEFAULT_SCOPE).strip() or DEFAULT_SCOPE,
@@ -139,12 +180,27 @@ class CreateConfig:
             ).strip()
             or DEFAULT_PREVIOUS_VERSION_FILE,
             english_only=english_only,
+            build_self_contained=build_self_contained,
+            publish_channels=publish_channels,
             bats=bats,
+            github_release=github_release,
         )
 
 
+def _split_list(raw: str) -> list[str]:
+    """Split a comma-separated INI value into trimmed, non-empty parts."""
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
 def _getboolean(parser: configparser.ConfigParser, section: str, key: str, default: bool) -> bool:
-    """Read a boolean, returning ``default`` when the section/key is absent."""
+    """Read a boolean, returning ``default`` when the section/key is absent.
+
+    Raises ConfigurationError (naming ``key``) for an unparseable value, so every
+    boolean option in this file shares one validation path/message shape.
+    """
     if section not in parser or key not in parser[section]:
         return default
-    return bool(parser[section].getboolean(key))
+    try:
+        return bool(parser[section].getboolean(key))
+    except ValueError as e:
+        raise ConfigurationError(f"Invalid '{key}' value (expected true/false): {e}") from e

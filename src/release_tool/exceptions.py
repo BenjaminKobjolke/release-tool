@@ -23,3 +23,7 @@ class VersionExistsError(ReleaseToolError):
 
 class ReleaseCreateError(ReleaseToolError):
     """Raised when a step of the `create` (full-release) workflow fails."""
+
+
+class GitHubReleaseError(ReleaseToolError):
+    """Raised when a GitHub Release operation fails."""
