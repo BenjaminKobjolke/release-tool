@@ -209,7 +209,11 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-/.claude
+.claude/
 
 # Local planning notes
 claude-plans/
+PLAN.md
+HANDOFF.md
+/PLAN_*.md
+PLAN_DIRECTORY_SYNC.md
