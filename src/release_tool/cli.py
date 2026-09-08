@@ -3,24 +3,17 @@
 import argparse
 import logging
 import sys
-from collections.abc import Callable
 from pathlib import Path
 
+from .cli_android import run_android, run_bump_build
+from .cli_support import guarded, setup_logging
 from .config import ReleaseConfig
 from .create_config import CreateConfig
-from .exceptions import ConfigurationError, FTPError, ReleaseToolError
 from .github_publisher import GitHubPublisher, GitHubReleaseConfig, render_notes_markdown
 from .release_creator import ReleaseCreator
 from .release_manager import ReleaseManager
 
-
-def setup_logging(verbose: bool) -> None:
-    """Configure logging based on verbosity."""
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(levelname)s: %(message)s",
-    )
+__all__ = ["main", "parse_args", "parse_create_args", "run", "setup_logging"]
 
 
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
@@ -64,27 +57,6 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(args)
 
 
-def _guarded(logger: logging.Logger, action: Callable[[], bool]) -> int:
-    """Run a CLI action, mapping tool exceptions to exit codes.
-
-    Shared by both entry points so the exception→exit-code contract cannot drift.
-    """
-    try:
-        return 0 if action() else 1
-    except ConfigurationError as e:
-        logger.error(f"Configuration error: {e}")
-        return 2
-    except FTPError as e:
-        logger.error(f"FTP error: {e}")
-        return 3
-    except ReleaseToolError as e:
-        logger.error(f"Error: {e}")
-        return 1
-    except KeyboardInterrupt:
-        logger.info("Operation cancelled")
-        return 130
-
-
 def run(args: argparse.Namespace) -> int:
     """Execute the release based on parsed arguments."""
     setup_logging(args.verbose)
@@ -99,7 +71,7 @@ def run(args: argparse.Namespace) -> int:
         )
         return manager.release(args.file)
 
-    return _guarded(logger, action)
+    return guarded(logger, action)
 
 
 def parse_create_args(args: list[str]) -> argparse.Namespace:
@@ -154,7 +126,7 @@ def run_create(args: list[str]) -> int:
         )
         return creator.create(internal=parsed.internal)
 
-    return _guarded(logger, action)
+    return guarded(logger, action)
 
 
 def parse_github_release_args(args: list[str]) -> argparse.Namespace:
@@ -208,7 +180,7 @@ def run_github_release(args: list[str]) -> int:
         )
         return True
 
-    return _guarded(logger, action)
+    return guarded(logger, action)
 
 
 def main(args: list[str] | None = None) -> int:
@@ -218,6 +190,10 @@ def main(args: list[str] | None = None) -> int:
         return run_create(argv[1:])
     if argv and argv[0] == "github-release":
         return run_github_release(argv[1:])
+    if argv and argv[0] == "android":
+        return run_android(argv[1:])
+    if argv and argv[0] == "bump-build":
+        return run_bump_build(argv[1:])
 
     parsed_args = parse_args(args)
     return run(parsed_args)

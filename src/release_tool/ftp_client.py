@@ -160,12 +160,12 @@ class FTPClient:
         except ftplib.error_perm:
             return False
 
-    def upload_file(self, local_path: Path) -> str:
-        """Upload a file to the current remote directory."""
+    def upload_file(self, local_path: Path, remote_name: str | None = None) -> str:
+        """Upload a file to the current remote directory, optionally renaming it."""
         if not self._ftp:
             raise FTPError("Not connected to FTP server")
 
-        filename = local_path.name
+        filename = remote_name or local_path.name
         logger.debug(f"Uploading file: {local_path} -> {filename}")
 
         try:

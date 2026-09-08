@@ -75,7 +75,7 @@ class TestReleaseManager:
 
         assert result is True
         mock_exists.assert_called_once_with("test.exe")
-        mock_upload.assert_called_once_with(test_file)
+        mock_upload.assert_called_once_with(test_file, "test.exe")
 
     def test_release_existing_file_delete_policy(
         self, release_config: ReleaseConfig, tmp_path: Path
@@ -116,6 +116,43 @@ class TestReleaseManager:
 
         assert result is True
         mock_handle.assert_called_once_with(manager.client, "test.exe", "1.2.3")
+
+    def test_release_uses_remote_filename(self, tmp_path: Path) -> None:
+        """remote_filename renames on upload and drives the existing-file handling."""
+        test_file = tmp_path / "app-release.apk"
+        test_file.write_bytes(b"content")
+
+        config = ReleaseConfig(
+            ftp=FTPConfig(
+                host="ftp.example.com",
+                port=21,
+                username="testuser",
+                password="testpass",
+                remote_path="/downloads",
+                remote_filename="tickets.apk",
+            ),
+            old_file=OldFileConfig(
+                policy=OldFilePolicy.DELETE,
+                subfolder_base="old_versions",
+                subfolder_naming=SubfolderNaming.TIMESTAMP,
+            ),
+        )
+        manager = ReleaseManager(config)
+
+        with (
+            patch.object(manager.client, "connect"),
+            patch.object(manager.client, "disconnect"),
+            patch.object(manager.client, "file_exists", return_value=True) as mock_exists,
+            patch.object(manager.old_file_handler, "handle") as mock_handle,
+            patch.object(manager.client, "upload_file") as mock_upload,
+        ):
+            result = manager.release(test_file)
+
+        assert result is True
+        # The remote holds tickets.apk — checking or renaming app-release.apk would 550.
+        mock_exists.assert_called_once_with("tickets.apk")
+        mock_handle.assert_called_once_with(manager.client, "tickets.apk", None)
+        mock_upload.assert_called_once_with(test_file, "tickets.apk")
 
     def test_release_uses_context_manager(
         self, release_config: ReleaseConfig, tmp_path: Path

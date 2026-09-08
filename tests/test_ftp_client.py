@@ -199,6 +199,20 @@ class TestFTPClient:
             call_args = mock_ftp.storbinary.call_args
             assert call_args[0][0] == "STOR test.exe"
 
+    def test_upload_file_renames_remote(self, client: FTPClient, tmp_path: Path) -> None:
+        """An explicit remote_name uploads under that name (rclone copyto semantics)."""
+        test_file = tmp_path / "app-release.apk"
+        test_file.write_bytes(b"test content")
+
+        mock_ftp = MagicMock(spec=RealFTP)
+
+        with patch("release_tool.ftp_client.ftplib.FTP", return_value=mock_ftp):
+            client.connect()
+            result = client.upload_file(test_file, remote_name="tickets.apk")
+
+            assert result == "tickets.apk"
+            assert mock_ftp.storbinary.call_args[0][0] == "STOR tickets.apk"
+
     def test_upload_file_not_connected(self, client: FTPClient, tmp_path: Path) -> None:
         """Test upload raises error when not connected."""
         test_file = tmp_path / "test.exe"

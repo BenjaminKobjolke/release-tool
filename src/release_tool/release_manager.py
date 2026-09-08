@@ -34,22 +34,26 @@ class ReleaseManager:
             logger.error(f"File not found: {file_path}")
             return False
 
-        filename = file_path.name
-        logger.info(f"Starting release of {filename}")
+        logger.info(f"Starting release of {file_path.name} as {self._remote_name(file_path)}")
 
         if self.dry_run:
             return self._dry_run_release(file_path)
 
         return self._execute_release(file_path)
 
+    def _remote_name(self, file_path: Path) -> str:
+        """The name the file gets on the server — configured, else the local one."""
+        return self.config.ftp.remote_filename or file_path.name
+
     def _dry_run_release(self, file_path: Path) -> bool:
         """Preview release without making changes."""
-        filename = file_path.name
+        # Pre-signing works on the local file; everything after it names the remote one.
+        remote_name = self._remote_name(file_path)
 
         pre_sign = self.config.pre_sign
         if pre_sign:
             logger.info("[DRY RUN] Pre-signing enabled")
-            logger.info(f"[DRY RUN] Would copy {filename} to {pre_sign.network_path}")
+            logger.info(f"[DRY RUN] Would copy {file_path.name} to {pre_sign.network_path}")
             logger.info(f"[DRY RUN] Would wait for signed file at: {pre_sign.network_path_signed}")
             logger.info(f"[DRY RUN] Expected signer: {pre_sign.expected_signer}")
             logger.info(
@@ -60,7 +64,7 @@ class ReleaseManager:
         logger.info("[DRY RUN] Would connect to FTP server")
         logger.info(f"[DRY RUN] Host: {self.config.ftp.host}:{self.config.ftp.port}")
         logger.info(f"[DRY RUN] Remote path: {self.config.ftp.remote_path}")
-        logger.info(f"[DRY RUN] Would check if {filename} exists on remote")
+        logger.info(f"[DRY RUN] Would check if {remote_name} exists on remote")
         logger.info(f"[DRY RUN] Old file policy: {self.config.old_file.policy.value}")
         if self.version:
             logger.info(f"[DRY RUN] Version for backup: {self.version}")
@@ -101,7 +105,7 @@ class ReleaseManager:
 
     def _execute_release(self, file_path: Path) -> bool:
         """Execute the actual release."""
-        filename = file_path.name
+        remote_name = self._remote_name(file_path)
 
         # Check version existence BEFORE pre-signing
         if not self._check_version_exists():
@@ -112,17 +116,17 @@ class ReleaseManager:
             file_path = self.pre_signer.process(file_path)
 
         with self.client.connection():
-            logger.debug(f"Checking if file exists on remote: {filename}")
-            if self.client.file_exists(filename):
-                logger.info(f"Existing file found: {filename}")
+            logger.debug(f"Checking if file exists on remote: {remote_name}")
+            if self.client.file_exists(remote_name):
+                logger.info(f"Existing file found: {remote_name}")
                 logger.debug(f"Calling old file handler: {type(self.old_file_handler).__name__}")
                 logger.debug(f"Version parameter: {self.version}")
-                self.old_file_handler.handle(self.client, filename, self.version)
+                self.old_file_handler.handle(self.client, remote_name, self.version)
             else:
-                logger.debug(f"No existing file found on remote: {filename}")
+                logger.debug(f"No existing file found on remote: {remote_name}")
 
-            self.client.upload_file(file_path)
-            logger.info(f"Successfully released {filename}")
+            self.client.upload_file(file_path, remote_name)
+            logger.info(f"Successfully released {remote_name}")
 
             # Upload release notes if configured
             if self.config.release_notes:

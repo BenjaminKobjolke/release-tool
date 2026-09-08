@@ -188,6 +188,41 @@ opt-in gate inside `create` via a `[GitHubRelease]` section in `release_create.i
 (`enabled`, `assets`, `repo`, `tag_format`, `title_format` — see
 `examples/release_create.ini`).
 
+## Build and upload an Android APK (`android` subcommand)
+
+Bumps the build number in `pubspec.yaml`, runs the Flutter build, verifies the
+APK, and uploads it under a fixed remote name so the download URL never changes.
+Replaces the per-project bat chains and their bundled `rclone.exe`. See
+[`docs/ANDROID_COMMAND.md`](docs/ANDROID_COMMAND.md) for full usage.
+
+```bash
+# Release build: bump, build, verify, upload
+release-tool android tools\android_release.ini --project-root .
+
+# Debug build: no bump, uploads as <name>-debug.apk
+release-tool android tools\android_release.ini --project-root . --debug
+```
+
+If the build fails, the bump is rolled back. Configuration reuses the `[FTP]` and
+`[OldFileHandling]` sections above plus an optional `[Build]` section — see
+`examples/android_release.ini`.
+
+Not just Flutter: `version_file_format` selects where the build number lives —
+`pubspec` (default), `gradle_kts`, `gradle_groovy` or `toml` — so Gradle projects
+bump their `versionCode` the same way.
+
+Seven projects have been migrated off their bundled `rclone.exe` bat chains —
+see [`docs/ANDROID_MIGRATION.md`](docs/ANDROID_MIGRATION.md) for their configs
+and the behavior changes involved.
+
+The build-number bump is also available on its own, for projects that build
+through another script:
+
+```bash
+release-tool bump-build ..\pubspec.yaml              # 1.0.0+2 -> 1.0.0+3
+release-tool bump-build ..\pubspec.yaml --decrement  # rollback
+```
+
 ## Development
 
 Run tests:

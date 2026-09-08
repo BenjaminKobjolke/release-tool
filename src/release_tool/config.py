@@ -40,6 +40,10 @@ class FTPConfig:
     username: str
     password: str
     remote_path: str
+    # Upload under this name instead of the local filename (rclone `copyto` semantics).
+    remote_filename: str | None = None
+    # Base of the public download URL, for the post-upload summary line.
+    public_url_base: str | None = None
 
 
 @dataclass
@@ -49,6 +53,19 @@ class OldFileConfig:
     policy: OldFilePolicy
     subfolder_base: str
     subfolder_naming: SubfolderNaming
+
+
+def load_parser(path: Path) -> configparser.ConfigParser:
+    """Read an INI file into a parser, with one shared missing/invalid-file contract."""
+    if not path.exists():
+        raise ConfigurationError(f"Configuration file not found: {path}")
+
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(path, encoding="utf-8")
+    except configparser.Error as e:
+        raise ConfigurationError(f"Failed to parse configuration file: {e}") from e
+    return parser
 
 
 @dataclass
@@ -63,15 +80,15 @@ class ReleaseConfig:
     @classmethod
     def from_ini_file(cls, path: Path) -> "ReleaseConfig":
         """Load configuration from INI file."""
-        if not path.exists():
-            raise ConfigurationError(f"Configuration file not found: {path}")
+        return cls.from_parser(load_parser(path))
 
-        parser = configparser.ConfigParser()
-        try:
-            parser.read(path, encoding="utf-8")
-        except configparser.Error as e:
-            raise ConfigurationError(f"Failed to parse configuration file: {e}") from e
+    @classmethod
+    def from_parser(cls, parser: configparser.ConfigParser) -> "ReleaseConfig":
+        """Build the configuration from an already-loaded parser.
 
+        Split out so a caller that needs extra sections of the same file — the
+        android command's [Build] — reads and parses it once, not twice.
+        """
         # Parse FTP section
         if "FTP" not in parser:
             raise ConfigurationError("Missing [FTP] section in configuration")
@@ -84,6 +101,8 @@ class ReleaseConfig:
                 username=ftp_section.get("username", ""),
                 password=ftp_section.get("password", ""),
                 remote_path=ftp_section.get("remote_path", "/"),
+                remote_filename=ftp_section.get("remote_filename") or None,
+                public_url_base=ftp_section.get("public_url_base") or None,
             )
         except ValueError as e:
             raise ConfigurationError(f"Invalid FTP configuration: {e}") from e
@@ -92,6 +111,15 @@ class ReleaseConfig:
             raise ConfigurationError("FTP host is required")
         if not ftp_config.username:
             raise ConfigurationError("FTP username is required")
+        # A directory here would silently resolve against the post-cwd() dir instead of
+        # remote_path, uploading to the wrong place with no error.
+        if ftp_config.remote_filename and (
+            "/" in ftp_config.remote_filename or "\\" in ftp_config.remote_filename
+        ):
+            raise ConfigurationError(
+                f"FTP remote_filename must be a bare filename, not a path: "
+                f"{ftp_config.remote_filename}. Put the directory in remote_path."
+            )
 
         # Parse OldFileHandling section
         old_file_section = parser["OldFileHandling"] if "OldFileHandling" in parser else {}
