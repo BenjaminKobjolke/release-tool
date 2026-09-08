@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .cli_android import run_android, run_bump_build
 from .cli_support import guarded, setup_logging
+from .cli_sync import run_sync
 from .config import ReleaseConfig
 from .create_config import CreateConfig
 from .github_publisher import GitHubPublisher, GitHubReleaseConfig, render_notes_markdown
@@ -194,6 +195,8 @@ def main(args: list[str] | None = None) -> int:
         return run_android(argv[1:])
     if argv and argv[0] == "bump-build":
         return run_bump_build(argv[1:])
+    if argv and argv[0] == "sync":
+        return run_sync(argv[1:])
 
     parsed_args = parse_args(args)
     return run(parsed_args)

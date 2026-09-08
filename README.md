@@ -223,6 +223,27 @@ release-tool bump-build ..\pubspec.yaml              # 1.0.0+2 -> 1.0.0+3
 release-tool bump-build ..\pubspec.yaml --decrement  # rollback
 ```
 
+## Upload a directory tree (`sync` subcommand)
+
+Mirrors a local directory to an FTP remote, creating remote directories as
+needed — the replacement for the `rclone copy <dir> ftp-remote:` bat calls, and
+the last thing that kept a bundled `rclone.exe` around. See
+[`docs/SYNC_COMMAND.md`](docs/SYNC_COMMAND.md) for full usage.
+
+```bash
+release-tool sync tools\sync_releases.ini --project-root .
+
+# List what would be uploaded, without connecting
+release-tool sync tools\sync_releases.ini --project-root . --dry-run
+```
+
+Configuration reuses the `[FTP]` section above plus a `[Sync]` section
+(`local_dir`, `exclude`, `skip_unchanged`) — see `examples/sync_config.ini`.
+Unchanged files are skipped by comparing **size only**: plain FTP has no
+modification time that is reliable across servers, so a file edited without
+changing its length is not re-uploaded. Set `skip_unchanged = false` when that
+matters. Nothing on the remote is ever deleted.
+
 ## Development
 
 Run tests:

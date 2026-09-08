@@ -5,12 +5,25 @@ import ftplib
 import logging
 from collections.abc import Generator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 from .config import FTPConfig
 from .exceptions import FTPError
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RemoteFile:
+    """What the server reports for one remote name.
+
+    ``size`` stays None for a file the server refuses to SIZE, so "exists" and
+    "we know how big it is" cannot be confused for one another.
+    """
+
+    exists: bool
+    size: int | None
 
 
 class FTPClient:
@@ -79,19 +92,24 @@ class FTPClient:
             except ftplib.error_perm:
                 pass
 
-    def file_exists(self, filename: str) -> bool:
-        """Check if file exists on remote."""
+    def stat_file(self, filename: str) -> RemoteFile:
+        """Ask the server about a name in the current remote directory."""
         if not self._ftp:
             raise FTPError("Not connected to FTP server")
 
         try:
             self._ftp.voidcmd("TYPE I")  # Switch to binary mode for SIZE command
             size = self._ftp.size(filename)
-            logger.debug(f"File exists: {filename} (size: {size} bytes)")
-            return True
         except ftplib.error_perm as e:
             logger.debug(f"File does not exist: {filename} (error: {e})")
-            return False
+            return RemoteFile(exists=False, size=None)
+
+        logger.debug(f"File exists: {filename} (size: {size} bytes)")
+        return RemoteFile(exists=True, size=size)
+
+    def file_exists(self, filename: str) -> bool:
+        """Check if file exists on remote."""
+        return self.stat_file(filename).exists
 
     def delete_file(self, filename: str) -> None:
         """Delete a file on remote."""

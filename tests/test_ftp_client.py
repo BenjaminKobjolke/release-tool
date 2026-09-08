@@ -8,7 +8,7 @@ import pytest
 
 from release_tool.config import FTPConfig
 from release_tool.exceptions import FTPError
-from release_tool.ftp_client import FTPClient
+from release_tool.ftp_client import FTPClient, RemoteFile
 
 # Store reference to real FTP class before any patching
 RealFTP = ftplib.FTP
@@ -118,6 +118,29 @@ class TestFTPClient:
             result = client.file_exists("test.exe")
 
             assert result is False
+
+    def test_stat_file_reports_size(self, client: FTPClient) -> None:
+        """stat_file carries the remote size the sync command compares against."""
+        mock_ftp = MagicMock(spec=RealFTP)
+        mock_ftp.size.return_value = 1024
+
+        with patch("release_tool.ftp_client.ftplib.FTP", return_value=mock_ftp):
+            client.connect()
+            remote = client.stat_file("test.exe")
+
+            assert remote == RemoteFile(exists=True, size=1024)
+
+    def test_stat_file_size_unknown_still_exists(self, client: FTPClient) -> None:
+        """A server that answers SIZE with nothing must not read as 'missing'."""
+        mock_ftp = MagicMock(spec=RealFTP)
+        mock_ftp.size.return_value = None
+
+        with patch("release_tool.ftp_client.ftplib.FTP", return_value=mock_ftp):
+            client.connect()
+            remote = client.stat_file("test.exe")
+
+            assert remote == RemoteFile(exists=True, size=None)
+            assert client.file_exists("test.exe") is True
 
     def test_file_exists_not_connected(self, client: FTPClient) -> None:
         """Test file_exists raises error when not connected."""

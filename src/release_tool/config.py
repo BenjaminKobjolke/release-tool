@@ -68,6 +68,46 @@ def load_parser(path: Path) -> configparser.ConfigParser:
     return parser
 
 
+def parse_ftp_config(parser: configparser.ConfigParser) -> FTPConfig:
+    """Parse and validate the [FTP] section.
+
+    Split out of ReleaseConfig so `sync`, which needs the connection but none of
+    the single-file release settings, validates credentials the exact same way.
+    """
+    if "FTP" not in parser:
+        raise ConfigurationError("Missing [FTP] section in configuration")
+
+    ftp_section = parser["FTP"]
+    try:
+        ftp_config = FTPConfig(
+            host=ftp_section.get("host", ""),
+            port=ftp_section.getint("port", 21),
+            username=ftp_section.get("username", ""),
+            password=ftp_section.get("password", ""),
+            remote_path=ftp_section.get("remote_path", "/"),
+            remote_filename=ftp_section.get("remote_filename") or None,
+            public_url_base=ftp_section.get("public_url_base") or None,
+        )
+    except ValueError as e:
+        raise ConfigurationError(f"Invalid FTP configuration: {e}") from e
+
+    if not ftp_config.host:
+        raise ConfigurationError("FTP host is required")
+    if not ftp_config.username:
+        raise ConfigurationError("FTP username is required")
+    # A directory here would silently resolve against the post-cwd() dir instead of
+    # remote_path, uploading to the wrong place with no error.
+    if ftp_config.remote_filename and (
+        "/" in ftp_config.remote_filename or "\\" in ftp_config.remote_filename
+    ):
+        raise ConfigurationError(
+            f"FTP remote_filename must be a bare filename, not a path: "
+            f"{ftp_config.remote_filename}. Put the directory in remote_path."
+        )
+
+    return ftp_config
+
+
 @dataclass
 class ReleaseConfig:
     """Complete release configuration."""
@@ -89,37 +129,7 @@ class ReleaseConfig:
         Split out so a caller that needs extra sections of the same file — the
         android command's [Build] — reads and parses it once, not twice.
         """
-        # Parse FTP section
-        if "FTP" not in parser:
-            raise ConfigurationError("Missing [FTP] section in configuration")
-
-        ftp_section = parser["FTP"]
-        try:
-            ftp_config = FTPConfig(
-                host=ftp_section.get("host", ""),
-                port=ftp_section.getint("port", 21),
-                username=ftp_section.get("username", ""),
-                password=ftp_section.get("password", ""),
-                remote_path=ftp_section.get("remote_path", "/"),
-                remote_filename=ftp_section.get("remote_filename") or None,
-                public_url_base=ftp_section.get("public_url_base") or None,
-            )
-        except ValueError as e:
-            raise ConfigurationError(f"Invalid FTP configuration: {e}") from e
-
-        if not ftp_config.host:
-            raise ConfigurationError("FTP host is required")
-        if not ftp_config.username:
-            raise ConfigurationError("FTP username is required")
-        # A directory here would silently resolve against the post-cwd() dir instead of
-        # remote_path, uploading to the wrong place with no error.
-        if ftp_config.remote_filename and (
-            "/" in ftp_config.remote_filename or "\\" in ftp_config.remote_filename
-        ):
-            raise ConfigurationError(
-                f"FTP remote_filename must be a bare filename, not a path: "
-                f"{ftp_config.remote_filename}. Put the directory in remote_path."
-            )
+        ftp_config = parse_ftp_config(parser)
 
         # Parse OldFileHandling section
         old_file_section = parser["OldFileHandling"] if "OldFileHandling" in parser else {}
