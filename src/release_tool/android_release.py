@@ -6,9 +6,16 @@ from pathlib import Path
 
 from .android_config import AndroidConfig, BuildVariant
 from .bat_runner import run_command
-from .exceptions import ReleaseCreateError
+from .exceptions import FTPError, ReleaseCreateError
+from .ftp_client import FTPClient
 from .release_manager import ReleaseManager
-from .version_file import VersionFile
+from .version_file import AppVersion, VersionFile
+from .version_sidecar import (
+    SIDECAR_SUFFIX,
+    sidecar_filename,
+    sidecar_payload,
+    write_sidecar,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +33,14 @@ class AndroidReleaseRunner:
         config: AndroidConfig,
         project_root: Path,
         release_manager: ReleaseManager,
+        ftp_client: FTPClient,
         version_file: VersionFile,
         dry_run: bool = False,
     ) -> None:
         self.config = config
         self.project_root = project_root
         self.release_manager = release_manager
+        self.ftp_client = ftp_client
         self.version_file = version_file
         self.dry_run = dry_run
 
@@ -40,7 +49,7 @@ class AndroidReleaseRunner:
         variant = self.config.variant(debug)
         apk = self.project_root / variant.apk
 
-        label = self._bump(variant)
+        version = self._bump(variant)
         try:
             self._build(variant, apk)
         except Exception:
@@ -49,20 +58,21 @@ class AndroidReleaseRunner:
 
         uploaded = self._upload(variant, apk)
         if uploaded:
-            self._log_summary(variant, apk, label)
+            self._upload_sidecar(variant, apk, version)
+            self._log_summary(variant, apk, version.label)
         return uploaded
 
-    def _bump(self, variant: BuildVariant) -> str:
-        """Advance the build number if this variant bumps; return the shipping label."""
+    def _bump(self, variant: BuildVariant) -> AppVersion:
+        """Advance the build number if this variant bumps; return the shipping version."""
         if not variant.bump:
-            return self.version_file.read().label
+            return self.version_file.read()
         if self.dry_run:
             current = self.version_file.read()
             logger.info(f"[DRY RUN] Would bump the build number from {current.label}")
-            return current.label
+            return current
 
         _, new = self.version_file.bump()
-        return new.label
+        return new
 
     def _build(self, variant: BuildVariant, apk: Path) -> None:
         """Build the APK, then prove the build actually produced it."""
@@ -100,6 +110,25 @@ class AndroidReleaseRunner:
             return True
 
         return self.release_manager.release(apk)
+
+    def _upload_sidecar(
+        self, variant: BuildVariant, apk: Path, version: AppVersion
+    ) -> None:
+        """Publish the metadata file only after its APK is online."""
+        name = sidecar_filename(variant.remote_filename)
+        if self.dry_run:
+            logger.info(f"[DRY RUN] Would upload {name}: {sidecar_payload(version)}")
+            return
+
+        path = write_sidecar(apk.parent, variant.remote_filename, version)
+        try:
+            with self.ftp_client.connection():
+                self.ftp_client.upload_file(path, name)
+        except FTPError as e:
+            raise FTPError(f"APK uploaded, but the version file {name} failed: {e}") from e
+
+        if variant.public_url:
+            logger.info(f"Uploaded version file to: {variant.public_url}{SIDECAR_SUFFIX}")
 
     def _log_summary(self, variant: BuildVariant, apk: Path, label: str) -> None:
         """Report what shipped — the mtime catches an accidentally stale APK."""

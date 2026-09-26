@@ -199,6 +199,8 @@ opt-in gate inside `create` via a `[GitHubRelease]` section in `release_create.i
 
 Bumps the build number in `pubspec.yaml`, runs the Flutter build, verifies the
 APK, and uploads it under a fixed remote name so the download URL never changes.
+After the APK, it uploads `<remote_filename>.json` with the version data used by
+the app downloads webpage.
 Replaces the per-project bat chains and their bundled `rclone.exe`. See
 [`docs/ANDROID_COMMAND.md`](docs/ANDROID_COMMAND.md) for full usage.
 

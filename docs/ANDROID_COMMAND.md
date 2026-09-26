@@ -35,7 +35,11 @@ release-tool android tools/android_release.ini --project-root . --dry-run --verb
    here, and the bump is rolled back.
 6. **Upload** through the normal publish path, renaming the file to
    `[FTP] remote_filename` (this is what `rclone copyto` used to do).
-7. **Report** the version, the APK's last-modified time and the public URL.
+7. **Upload the version sidecar** as `<remote_filename>.json`, after the APK is
+   online. The app downloads webpage reads `version` and `version_code` from it.
+   Gradle versions without a name contain only `version_code`; debug builds use
+   names such as `myapp-debug.apk.json`.
+8. **Report** the version, the APK's last-modified time and the public URL.
 
 If the build fails, the build-number bump is rolled back with a decrement. A
 rollback that itself fails is logged but never hides the original build error.

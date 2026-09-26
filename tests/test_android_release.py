@@ -1,13 +1,14 @@
 """Tests for the android build-and-upload runner."""
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
 from release_tool.android_config import AndroidConfig
 from release_tool.android_release import AndroidReleaseRunner
-from release_tool.exceptions import ReleaseCreateError
+from release_tool.exceptions import FTPError, ReleaseCreateError
+from release_tool.ftp_client import FTPClient
 from release_tool.release_manager import ReleaseManager
 from release_tool.version_file import AppVersion, VersionFile
 
@@ -46,10 +47,11 @@ def make_runner(
     config: AndroidConfig,
     project_root: Path,
     dry_run: bool = False,
-) -> tuple[AndroidReleaseRunner, MagicMock, MagicMock]:
-    """Build a runner with mocked collaborators; returns (runner, manager, version_file)."""
+) -> tuple[AndroidReleaseRunner, MagicMock, MagicMock, MagicMock]:
+    """Build a runner with mocked collaborators."""
     manager = MagicMock(spec=ReleaseManager)
     manager.release.return_value = True
+    ftp_client = MagicMock(spec=FTPClient)
     version_file = MagicMock(spec=VersionFile)
     version_file.read.return_value = VERSION
     version_file.bump.return_value = (VERSION, BUMPED)
@@ -57,10 +59,11 @@ def make_runner(
         config=config,
         project_root=project_root,
         release_manager=manager,
+        ftp_client=ftp_client,
         version_file=version_file,
         dry_run=dry_run,
     )
-    return runner, manager, version_file
+    return runner, manager, ftp_client, version_file
 
 
 class TestReleaseBuild:
@@ -68,8 +71,11 @@ class TestReleaseBuild:
 
     def test_bumps_builds_and_uploads(self, config: AndroidConfig, project_root: Path) -> None:
         """The happy path runs every step in order and reports success."""
-        runner, manager, version_file = make_runner(config, project_root)
+        runner, manager, ftp_client, version_file = make_runner(config, project_root)
         apk = project_root / config.apk
+        calls = MagicMock()
+        calls.attach_mock(manager.release, "apk")
+        calls.attach_mock(ftp_client.upload_file, "sidecar")
 
         with patch("release_tool.android_release.run_command") as mock_run:
             # The build is mocked, so re-create the APK the runner just deleted.
@@ -79,12 +85,19 @@ class TestReleaseBuild:
         version_file.bump.assert_called_once_with()
         mock_run.assert_called_once_with(config.command, cwd=project_root, dry_run=False)
         manager.release.assert_called_once_with(apk)
+        sidecar = apk.parent / "tickets.apk.json"
+        ftp_client.upload_file.assert_called_once_with(sidecar, "tickets.apk.json")
+        assert calls.mock_calls == [
+            call.apk(apk),
+            call.sidecar(sidecar, "tickets.apk.json"),
+        ]
+        assert '"version_code": 3' in sidecar.read_text(encoding="utf-8")
 
     def test_deletes_stale_apk_before_building(
         self, config: AndroidConfig, project_root: Path
     ) -> None:
         """Verification must not pass on the previous run's artifact."""
-        runner, _, _ = make_runner(config, project_root)
+        runner, _, _, _ = make_runner(config, project_root)
         apk = project_root / config.apk
         seen: list[bool] = []
 
@@ -99,13 +112,27 @@ class TestReleaseBuild:
 
     def test_propagates_upload_failure(self, config: AndroidConfig, project_root: Path) -> None:
         """A False from ReleaseManager must not be swallowed into success."""
-        runner, manager, _ = make_runner(config, project_root)
+        runner, manager, ftp_client, _ = make_runner(config, project_root)
         manager.release.return_value = False
         apk = project_root / config.apk
 
         with patch("release_tool.android_release.run_command") as mock_run:
             mock_run.side_effect = lambda *a, **k: apk.write_bytes(b"apk")
             assert runner.release(debug=False) is False
+
+        ftp_client.upload_file.assert_not_called()
+
+    def test_sidecar_failure_says_apk_was_uploaded(
+        self, config: AndroidConfig, project_root: Path
+    ) -> None:
+        runner, _, ftp_client, _ = make_runner(config, project_root)
+        ftp_client.upload_file.side_effect = FTPError("connection lost")
+        apk = project_root / config.apk
+
+        with patch("release_tool.android_release.run_command") as mock_run:
+            mock_run.side_effect = lambda *a, **k: apk.write_bytes(b"apk")
+            with pytest.raises(FTPError, match="APK uploaded, but the version file"):
+                runner.release(debug=False)
 
 
 class TestDebugBuild:
@@ -115,7 +142,7 @@ class TestDebugBuild:
         self, config: AndroidConfig, project_root: Path
     ) -> None:
         """Debug builds use the debug argv/apk and leave the version alone."""
-        runner, manager, version_file = make_runner(config, project_root)
+        runner, manager, ftp_client, version_file = make_runner(config, project_root)
         apk_debug = project_root / config.apk_debug
 
         with patch("release_tool.android_release.run_command") as mock_run:
@@ -125,13 +152,16 @@ class TestDebugBuild:
         version_file.bump.assert_not_called()
         mock_run.assert_called_once_with(config.command_debug, cwd=project_root, dry_run=False)
         manager.release.assert_called_once_with(apk_debug)
+        ftp_client.upload_file.assert_called_once_with(
+            apk_debug.parent / "tickets-debug.apk.json", "tickets-debug.apk.json"
+        )
 
     def test_bump_on_debug_bumps(self, tmp_path: Path, project_root: Path) -> None:
         """With bump_on_debug, a debug build bumps like a release one."""
         ini = tmp_path / "bump_debug.ini"
         ini.write_text(INI + "\n[Build]\nbump_on_debug = true\n", encoding="utf-8")
         config = AndroidConfig.from_ini_file(ini)
-        runner, _, version_file = make_runner(config, project_root)
+        runner, _, _, version_file = make_runner(config, project_root)
         apk_debug = project_root / config.apk_debug
 
         with patch("release_tool.android_release.run_command") as mock_run:
@@ -148,7 +178,7 @@ class TestRollback:
         self, config: AndroidConfig, project_root: Path
     ) -> None:
         """The bump is undone exactly once and the build error still surfaces."""
-        runner, _, version_file = make_runner(config, project_root)
+        runner, _, _, version_file = make_runner(config, project_root)
 
         with patch("release_tool.android_release.run_command") as mock_run:
             mock_run.side_effect = ReleaseCreateError("build blew up")
@@ -162,7 +192,7 @@ class TestRollback:
         self, config: AndroidConfig, project_root: Path
     ) -> None:
         """A build that "succeeds" without producing the APK is still a failure."""
-        runner, manager, version_file = make_runner(config, project_root)
+        runner, manager, _, version_file = make_runner(config, project_root)
 
         with (
             patch("release_tool.android_release.run_command"),
@@ -177,7 +207,7 @@ class TestRollback:
         self, config: AndroidConfig, project_root: Path
     ) -> None:
         """A failed debug build has nothing to roll back."""
-        runner, _, version_file = make_runner(config, project_root)
+        runner, _, _, version_file = make_runner(config, project_root)
 
         with patch("release_tool.android_release.run_command") as mock_run:
             mock_run.side_effect = ReleaseCreateError("build blew up")
@@ -190,7 +220,7 @@ class TestRollback:
         self, config: AndroidConfig, project_root: Path
     ) -> None:
         """A broken rollback must not mask why the build failed."""
-        runner, _, version_file = make_runner(config, project_root)
+        runner, _, _, version_file = make_runner(config, project_root)
         version_file.bump.side_effect = [(VERSION, BUMPED), OSError("pubspec is locked")]
 
         with patch("release_tool.android_release.run_command") as mock_run:
@@ -206,7 +236,9 @@ class TestDryRun:
         self, config: AndroidConfig, project_root: Path
     ) -> None:
         """Dry run reads the version, narrates the rest, and leaves the APK alone."""
-        runner, manager, version_file = make_runner(config, project_root, dry_run=True)
+        runner, manager, ftp_client, version_file = make_runner(
+            config, project_root, dry_run=True
+        )
         apk = project_root / config.apk
 
         with patch("release_tool.android_release.run_command") as mock_run:
@@ -216,13 +248,15 @@ class TestDryRun:
         version_file.read.assert_called_once_with()
         mock_run.assert_called_once_with(config.command, cwd=project_root, dry_run=True)
         manager.release.assert_not_called()
+        ftp_client.upload_file.assert_not_called()
+        assert not (apk.parent / "tickets.apk.json").exists()
         assert apk.exists()
 
     def test_does_not_fail_when_apk_is_absent(
         self, config: AndroidConfig, project_root: Path
     ) -> None:
         """The APK legitimately does not exist in a dry run."""
-        runner, _, _ = make_runner(config, project_root, dry_run=True)
+        runner, _, _, _ = make_runner(config, project_root, dry_run=True)
         (project_root / config.apk).unlink()
 
         with patch("release_tool.android_release.run_command"):

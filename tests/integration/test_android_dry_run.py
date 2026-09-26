@@ -65,6 +65,7 @@ def test_dry_run_succeeds_and_changes_nothing(
     assert "fvm flutter build apk --release --no-shrink" in log
     assert "1.0.0+2" in log
     assert "https://example.com/apps/demo.apk" in log
+    assert "demo.apk.json" in log
 
 
 def test_dry_run_resolves_ftp_profile(

@@ -7,6 +7,7 @@ from pathlib import Path
 from .android_config import AndroidConfig
 from .android_release import AndroidReleaseRunner
 from .cli_support import guarded, setup_logging
+from .ftp_client import FTPClient
 from .release_manager import ReleaseManager
 from .version_file import DEFAULT_VERSION_FORMAT, VERSION_FORMATS, VersionFile
 
@@ -55,6 +56,7 @@ def run_android(args: list[str]) -> int:
             config=config,
             project_root=project_root,
             release_manager=ReleaseManager(config=config.release, dry_run=parsed.dry_run),
+            ftp_client=FTPClient(config.release.ftp),
             version_file=VersionFile(
                 project_root / config.version_file, config.version_file_format
             ),
