@@ -8,6 +8,9 @@ from pathlib import Path
 from .exceptions import ConfigurationError
 from .pre_signer import PreSignConfig
 
+PROFILES_FILE = Path(__file__).resolve().parents[2] / "ftp_profiles.ini"
+PROFILE_KEY = "profile"
+
 
 @dataclass
 class ReleaseNotesConfig:
@@ -68,7 +71,23 @@ def load_parser(path: Path) -> configparser.ConfigParser:
     return parser
 
 
-def parse_ftp_config(parser: configparser.ConfigParser) -> FTPConfig:
+def _load_ftp_profile(name: str, path: Path) -> dict[str, str]:
+    """Load one named profile from the private profiles file."""
+    if not path.exists():
+        raise ConfigurationError(f"FTP profile '{name}' requested but {path} does not exist")
+
+    parser = load_parser(path)
+    if name not in parser:
+        available = ", ".join(parser.sections()) or "(none)"
+        raise ConfigurationError(
+            f"FTP profile '{name}' not found in {path}. Available profiles: {available}"
+        )
+    return dict(parser[name])
+
+
+def parse_ftp_config(
+    parser: configparser.ConfigParser, profiles_path: Path | None = None
+) -> FTPConfig:
     """Parse and validate the [FTP] section.
 
     Split out of ReleaseConfig so `sync`, which needs the connection but none of
@@ -77,16 +96,21 @@ def parse_ftp_config(parser: configparser.ConfigParser) -> FTPConfig:
     if "FTP" not in parser:
         raise ConfigurationError("Missing [FTP] section in configuration")
 
-    ftp_section = parser["FTP"]
+    values = dict(parser["FTP"])
+    if PROFILE_KEY in values:
+        name = values.pop(PROFILE_KEY).strip()
+        path = PROFILES_FILE if profiles_path is None else profiles_path
+        values = {**_load_ftp_profile(name, path), **values}
+
     try:
         ftp_config = FTPConfig(
-            host=ftp_section.get("host", ""),
-            port=ftp_section.getint("port", 21),
-            username=ftp_section.get("username", ""),
-            password=ftp_section.get("password", ""),
-            remote_path=ftp_section.get("remote_path", "/"),
-            remote_filename=ftp_section.get("remote_filename") or None,
-            public_url_base=ftp_section.get("public_url_base") or None,
+            host=values.get("host", ""),
+            port=int(values.get("port", "21")),
+            username=values.get("username", ""),
+            password=values.get("password", ""),
+            remote_path=values.get("remote_path", "/"),
+            remote_filename=values.get("remote_filename") or None,
+            public_url_base=values.get("public_url_base") or None,
         )
     except ValueError as e:
         raise ConfigurationError(f"Invalid FTP configuration: {e}") from e

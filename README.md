@@ -74,6 +74,13 @@ path = D:/Projects/MyApp/release_notes
 remote_path = /public/sites/myapp/release_notes
 ```
 
+### FTP profiles
+
+Shared credentials and paths can live once in the gitignored
+`ftp_profiles.ini` at this checkout's root. Projects select a named section with
+`[FTP] profile = <name>` and may override any key locally. See
+[`docs/FTP_PROFILES.md`](docs/FTP_PROFILES.md).
+
 ### Pre-Signing Workflow
 
 When `[PreSigning]` is enabled, the tool performs these steps before FTP upload:

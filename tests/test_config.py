@@ -1,5 +1,6 @@
 """Tests for configuration module."""
 
+import configparser
 from pathlib import Path
 
 import pytest
@@ -10,8 +11,10 @@ from release_tool.config import (
     OldFilePolicy,
     ReleaseConfig,
     SubfolderNaming,
+    parse_ftp_config,
 )
 from release_tool.exceptions import ConfigurationError
+from release_tool.sync_config import SyncConfig
 
 
 class TestFTPConfig:
@@ -54,6 +57,109 @@ class TestOldFileConfig:
         )
         assert config.policy == OldFilePolicy.RENAME
         assert config.subfolder_naming == SubfolderNaming.VERSION
+
+
+class TestFTPProfiles:
+    """Tests for reusable named FTP configuration."""
+
+    @staticmethod
+    def parser(content: str) -> configparser.ConfigParser:
+        parser = configparser.ConfigParser()
+        parser.read_string(content)
+        return parser
+
+    @staticmethod
+    def write_profiles(path: Path, content: str = "") -> Path:
+        path.write_text(
+            content
+            or """[kobjolke.com - apps]
+host = ftp.example.com
+port = 2121
+username = deploy
+password = secret
+remote_path = /downloads/
+public_url_base = https://example.com/apps
+""",
+            encoding="utf-8",
+        )
+        return path
+
+    def test_loads_named_profile_with_spaces(self, tmp_path: Path) -> None:
+        profiles = self.write_profiles(tmp_path / "ftp_profiles.ini")
+        parser = self.parser("[FTP]\nprofile = kobjolke.com - apps\nremote_filename = app.apk\n")
+
+        config = parse_ftp_config(parser, profiles)
+
+        assert config == FTPConfig(
+            host="ftp.example.com",
+            port=2121,
+            username="deploy",
+            password="secret",
+            remote_path="/downloads/",
+            remote_filename="app.apk",
+            public_url_base="https://example.com/apps",
+        )
+
+    def test_project_value_overrides_profile(self, tmp_path: Path) -> None:
+        profiles = self.write_profiles(tmp_path / "ftp_profiles.ini")
+        parser = self.parser(
+            "[FTP]\nprofile = kobjolke.com - apps\nremote_path = /project/\n"
+        )
+
+        assert parse_ftp_config(parser, profiles).remote_path == "/project/"
+
+    def test_missing_profiles_file_names_expected_path(self, tmp_path: Path) -> None:
+        path = tmp_path / "missing.ini"
+        parser = self.parser("[FTP]\nprofile = apps\n")
+
+        with pytest.raises(ConfigurationError, match=str(path).replace("\\", "\\\\")):
+            parse_ftp_config(parser, path)
+
+    def test_unknown_profile_lists_available_names(self, tmp_path: Path) -> None:
+        profiles = self.write_profiles(tmp_path / "ftp_profiles.ini")
+        parser = self.parser("[FTP]\nprofile = typo\n")
+
+        with pytest.raises(ConfigurationError, match="kobjolke.com - apps"):
+            parse_ftp_config(parser, profiles)
+
+    def test_no_profile_does_not_read_profiles_file(self, tmp_path: Path) -> None:
+        parser = self.parser("[FTP]\nhost = direct.example\nusername = deploy\n")
+
+        config = parse_ftp_config(parser, tmp_path / "missing.ini")
+
+        assert config.host == "direct.example"
+
+    def test_profile_still_requires_host(self, tmp_path: Path) -> None:
+        profiles = self.write_profiles(
+            tmp_path / "ftp_profiles.ini", "[incomplete]\nusername = deploy\n"
+        )
+        parser = self.parser("[FTP]\nprofile = incomplete\n")
+
+        with pytest.raises(ConfigurationError, match="FTP host is required"):
+            parse_ftp_config(parser, profiles)
+
+    def test_invalid_profile_port_is_configuration_error(self, tmp_path: Path) -> None:
+        profiles = self.write_profiles(
+            tmp_path / "ftp_profiles.ini",
+            "[apps]\nhost = ftp.example.com\nusername = deploy\nport = nope\n",
+        )
+        parser = self.parser("[FTP]\nprofile = apps\n")
+
+        with pytest.raises(ConfigurationError, match="Invalid FTP configuration"):
+            parse_ftp_config(parser, profiles)
+
+    def test_sync_uses_profile(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        profiles = self.write_profiles(tmp_path / "ftp_profiles.ini")
+        monkeypatch.setattr("release_tool.config.PROFILES_FILE", profiles)
+        config_path = tmp_path / "sync.ini"
+        config_path.write_text(
+            "[FTP]\nprofile = kobjolke.com - apps\n\n[Sync]\nlocal_dir = releases\n",
+            encoding="utf-8",
+        )
+
+        config = SyncConfig.from_ini_file(config_path)
+
+        assert config.ftp.host == "ftp.example.com"
 
 
 class TestReleaseConfig:

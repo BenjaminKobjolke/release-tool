@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from release_tool import config as config_module
 from release_tool.cli import main
 
 PUBSPEC = "name: demo\r\nversion: 1.0.0+2\r\n\r\nenvironment:\r\n"
@@ -64,6 +65,48 @@ def test_dry_run_succeeds_and_changes_nothing(
     assert "fvm flutter build apk --release --no-shrink" in log
     assert "1.0.0+2" in log
     assert "https://example.com/apps/demo.apk" in log
+
+
+def test_dry_run_resolves_ftp_profile(
+    project: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The CLI resolves profiles through the shared config boundary."""
+    profiles = tmp_path / "ftp_profiles.ini"
+    profiles.write_text(
+        """[apps]
+host = profile.example.com
+username = deploy
+password = secret
+remote_path = /downloads/
+public_url_base = https://example.com/apps
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config_module, "PROFILES_FILE", profiles)
+    (project / "tools" / "android_release.ini").write_text(
+        """[FTP]
+profile = apps
+remote_filename = demo.apk
+""",
+        encoding="utf-8",
+    )
+
+    with caplog.at_level("INFO"):
+        exit_code = main(
+            [
+                "android",
+                str(project / "tools" / "android_release.ini"),
+                "--project-root",
+                str(project),
+                "--dry-run",
+            ]
+        )
+
+    assert exit_code == 0
+    assert "profile.example.com:21/downloads/demo.apk" in caplog.text
 
 
 def test_dry_run_debug_uses_debug_name(project: Path, caplog: pytest.LogCaptureFixture) -> None:

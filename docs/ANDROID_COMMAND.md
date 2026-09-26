@@ -45,6 +45,9 @@ rollback that itself fails is logged but never hides the original build error.
 `[FTP]` and `[OldFileHandling]` are the same sections the base publish command
 uses (see `PUBLISH_COMMAND.md`), with two additions:
 
+Shared credentials and paths may be selected with `profile`; see
+[`FTP_PROFILES.md`](FTP_PROFILES.md). Project keys override profile keys.
+
 | Key | Section | Default | Meaning |
 |---|---|---|---|
 | `remote_filename` | `[FTP]` | — (**required**) | Name the APK gets on the server. Bare filename; a path is rejected |
