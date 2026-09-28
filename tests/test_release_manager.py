@@ -154,6 +154,70 @@ class TestReleaseManager:
         mock_handle.assert_called_once_with(manager.client, "tickets.apk", None)
         mock_upload.assert_called_once_with(test_file, "tickets.apk")
 
+    def test_release_remote_filename_override_wins(self, tmp_path: Path) -> None:
+        """A per-release name overrides the configured remote filename."""
+        test_file = tmp_path / "app-debug.apk"
+        test_file.write_bytes(b"content")
+        config = ReleaseConfig(
+            ftp=FTPConfig(
+                host="ftp.example.com",
+                port=21,
+                username="testuser",
+                password="testpass",
+                remote_path="/downloads",
+                remote_filename="tickets.apk",
+            ),
+            old_file=OldFileConfig(
+                policy=OldFilePolicy.DELETE,
+                subfolder_base="old_versions",
+                subfolder_naming=SubfolderNaming.TIMESTAMP,
+            ),
+        )
+        manager = ReleaseManager(config)
+
+        with (
+            patch.object(manager.client, "connect"),
+            patch.object(manager.client, "disconnect"),
+            patch.object(manager.client, "file_exists", return_value=True) as mock_exists,
+            patch.object(manager.old_file_handler, "handle") as mock_handle,
+            patch.object(manager.client, "upload_file") as mock_upload,
+        ):
+            result = manager.release(test_file, remote_filename="tickets-debug.apk")
+
+        assert result is True
+        mock_exists.assert_called_once_with("tickets-debug.apk")
+        mock_handle.assert_called_once_with(manager.client, "tickets-debug.apk", None)
+        mock_upload.assert_called_once_with(test_file, "tickets-debug.apk")
+
+    def test_dry_run_names_override(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """Dry-run narration uses the per-release filename override."""
+        test_file = tmp_path / "app-debug.apk"
+        test_file.write_bytes(b"content")
+        config = ReleaseConfig(
+            ftp=FTPConfig(
+                host="ftp.example.com",
+                port=21,
+                username="testuser",
+                password="testpass",
+                remote_path="/downloads",
+                remote_filename="tickets.apk",
+            ),
+            old_file=OldFileConfig(
+                policy=OldFilePolicy.DELETE,
+                subfolder_base="old_versions",
+                subfolder_naming=SubfolderNaming.TIMESTAMP,
+            ),
+        )
+        manager = ReleaseManager(config, dry_run=True)
+        caplog.set_level("INFO")
+
+        with patch.object(manager.client, "connect") as mock_connect:
+            assert manager.release(test_file, remote_filename="tickets-debug.apk") is True
+
+        assert "Would check if tickets-debug.apk exists on remote" in caplog.text
+        assert f"Would upload {test_file} as tickets-debug.apk" in caplog.text
+        mock_connect.assert_not_called()
+
     def test_release_uses_context_manager(
         self, release_config: ReleaseConfig, tmp_path: Path
     ) -> None:

@@ -109,7 +109,7 @@ class AndroidReleaseRunner:
             )
             return True
 
-        return self.release_manager.release(apk)
+        return self.release_manager.release(apk, variant.remote_filename)
 
     def _upload_sidecar(
         self, variant: BuildVariant, apk: Path, version: AppVersion

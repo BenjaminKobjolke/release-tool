@@ -28,28 +28,27 @@ class ReleaseManager:
         self.old_file_handler = create_handler(config.old_file)
         self.pre_signer = PreSigner(config.pre_sign) if config.pre_sign else None
 
-    def release(self, file_path: Path) -> bool:
-        """Execute the release workflow."""
+    def release(self, file_path: Path, remote_filename: str | None = None) -> bool:
+        """Execute the release workflow with an optional one-release remote name."""
         if not file_path.exists():
             logger.error(f"File not found: {file_path}")
             return False
 
-        logger.info(f"Starting release of {file_path.name} as {self._remote_name(file_path)}")
+        remote_name = self._remote_name(file_path, remote_filename)
+        logger.info(f"Starting release of {file_path.name} as {remote_name}")
 
         if self.dry_run:
-            return self._dry_run_release(file_path)
+            return self._dry_run_release(file_path, remote_name)
 
-        return self._execute_release(file_path)
+        return self._execute_release(file_path, remote_name)
 
-    def _remote_name(self, file_path: Path) -> str:
-        """The name the file gets on the server — configured, else the local one."""
-        return self.config.ftp.remote_filename or file_path.name
+    def _remote_name(self, file_path: Path, override: str | None) -> str:
+        """The name the file gets on the server — override, configured, else local."""
+        return override or self.config.ftp.remote_filename or file_path.name
 
-    def _dry_run_release(self, file_path: Path) -> bool:
+    def _dry_run_release(self, file_path: Path, remote_name: str) -> bool:
         """Preview release without making changes."""
         # Pre-signing works on the local file; everything after it names the remote one.
-        remote_name = self._remote_name(file_path)
-
         pre_sign = self.config.pre_sign
         if pre_sign:
             logger.info("[DRY RUN] Pre-signing enabled")
@@ -68,7 +67,7 @@ class ReleaseManager:
         logger.info(f"[DRY RUN] Old file policy: {self.config.old_file.policy.value}")
         if self.version:
             logger.info(f"[DRY RUN] Version for backup: {self.version}")
-        logger.info(f"[DRY RUN] Would upload {file_path}")
+        logger.info(f"[DRY RUN] Would upload {file_path} as {remote_name}")
 
         if self.config.release_notes:
             uploader = ReleaseNotesUploader(
@@ -103,10 +102,8 @@ class ReleaseManager:
 
         return True
 
-    def _execute_release(self, file_path: Path) -> bool:
+    def _execute_release(self, file_path: Path, remote_name: str) -> bool:
         """Execute the actual release."""
-        remote_name = self._remote_name(file_path)
-
         # Check version existence BEFORE pre-signing
         if not self._check_version_exists():
             return False

@@ -84,11 +84,11 @@ class TestReleaseBuild:
 
         version_file.bump.assert_called_once_with()
         mock_run.assert_called_once_with(config.command, cwd=project_root, dry_run=False)
-        manager.release.assert_called_once_with(apk)
+        manager.release.assert_called_once_with(apk, "tickets.apk")
         sidecar = apk.parent / "tickets.apk.json"
         ftp_client.upload_file.assert_called_once_with(sidecar, "tickets.apk.json")
         assert calls.mock_calls == [
-            call.apk(apk),
+            call.apk(apk, "tickets.apk"),
             call.sidecar(sidecar, "tickets.apk.json"),
         ]
         assert '"version_code": 3' in sidecar.read_text(encoding="utf-8")
@@ -151,7 +151,7 @@ class TestDebugBuild:
 
         version_file.bump.assert_not_called()
         mock_run.assert_called_once_with(config.command_debug, cwd=project_root, dry_run=False)
-        manager.release.assert_called_once_with(apk_debug)
+        manager.release.assert_called_once_with(apk_debug, "tickets-debug.apk")
         ftp_client.upload_file.assert_called_once_with(
             apk_debug.parent / "tickets-debug.apk.json", "tickets-debug.apk.json"
         )
