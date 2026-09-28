@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .bat_runner import bat_command, capture_command, run_command
+from .cli_support import confirm
 from .create_config import CreateConfig, PublishChannel
 from .exceptions import ReleaseCreateError
 from .github_publisher import GitHubPublisher, render_notes_markdown
@@ -149,6 +150,7 @@ class ReleaseCreator:
             ],
             self.root,
             self.dry_run,
+            close_stdin=True,
         )
         if self.dry_run:
             return
@@ -200,7 +202,7 @@ class ReleaseCreator:
                 self._run_bat(channel.bat)
                 continue
 
-            if input(f"{prompt}: ").strip().lower() != "y":
+            if not confirm(prompt):
                 logger.info(f"Publish to {channel.name} declined by user.")
                 continue
             self._run_bat(channel.bat)
@@ -211,7 +213,7 @@ class ReleaseCreator:
         prompt = f"Commit, tag and push {label}? [y/N]"
         if self.dry_run:
             logger.info(f"[DRY RUN] Would prompt: {prompt}")
-        elif input(f"{prompt}: ").strip().lower() != "y":
+        elif not confirm(prompt):
             logger.info("Commit/tag/push declined by user.")
             return False
 
@@ -237,7 +239,7 @@ class ReleaseCreator:
         prompt = f"Create GitHub Release {tag}? [y/N]"
         if self.dry_run:
             logger.info(f"[DRY RUN] Would prompt: {prompt}")
-        elif input(f"{prompt}: ").strip().lower() != "y":
+        elif not confirm(prompt):
             logger.info("GitHub Release declined by user.")
             return
 

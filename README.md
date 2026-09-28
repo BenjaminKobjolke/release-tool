@@ -125,6 +125,10 @@ release-tool create --internal
 release-tool create --dry-run
 ```
 
+The Codex notes step runs with stdin closed so it cannot wait on an inherited
+pipe. When `TICKETS_WATCHER_COMMAND_RUN=1`, every y/N prompt is preceded by a
+flushed `::tw-input-line::` line so the Tickets app can display and answer it.
+
 ### What it does
 
 1. **Compute the next label** — `<version>_<build+1>` (build first, ship next).

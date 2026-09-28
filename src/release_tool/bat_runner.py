@@ -36,10 +36,14 @@ def _resolve(cmd: list[str]) -> list[str]:
     return [exe, *cmd[1:]] if exe else cmd
 
 
-def run_command(cmd: list[str], cwd: Path, dry_run: bool = False) -> None:
+def run_command(
+    cmd: list[str], cwd: Path, dry_run: bool = False, close_stdin: bool = False
+) -> None:
     """Run a command, streaming output; raise ReleaseCreateError on failure.
 
-    In dry-run mode the command is only logged and never executed.
+    In dry-run mode the command is only logged and never executed. Closing stdin
+    prevents children such as Codex from waiting for EOF on an inherited pipe;
+    batch files keep the pipe so their prompts remain answerable.
     """
     printable = " ".join(cmd)
     if dry_run:
@@ -48,7 +52,9 @@ def run_command(cmd: list[str], cwd: Path, dry_run: bool = False) -> None:
 
     logger.info(f"Running: {printable}")
     try:
-        result = subprocess.run(_resolve(cmd), cwd=cwd)
+        result = subprocess.run(
+            _resolve(cmd), cwd=cwd, stdin=subprocess.DEVNULL if close_stdin else None
+        )
     except OSError as e:
         raise ReleaseCreateError(f"Failed to start command '{printable}': {e}") from e
     _raise_on_failure(result.returncode, printable)

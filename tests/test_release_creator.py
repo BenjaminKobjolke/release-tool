@@ -202,7 +202,13 @@ class TestCreateFlow:
         label_capture(mock_capture)
         creator = ReleaseCreator(make_config(), tmp_path, dry_run=True)
         creator.create(internal=False)
-        assert uses(ran(mock_run), "codex")
+        codex_call = next(call for call in mock_run.call_args_list if "codex" in call.args[0])
+        assert codex_call.kwargs == {"close_stdin": True}
+        assert all(
+            call.kwargs.get("close_stdin") is not True
+            for call in mock_run.call_args_list
+            if call is not codex_call
+        )
 
     @patch("release_tool.release_creator.run_command")
     @patch("release_tool.release_creator.capture_command")

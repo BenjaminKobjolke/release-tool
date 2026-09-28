@@ -3,6 +3,7 @@
 import logging
 from pathlib import Path
 
+from .cli_support import confirm
 from .config import OldFilePolicy, ReleaseConfig
 from .ftp_client import FTPClient
 from .old_file_handler import create_handler
@@ -95,8 +96,7 @@ class ReleaseManager:
         with self.client.connection():
             if self.client.directory_exists(version_path):
                 logger.warning(f"Version folder already exists: {version_path}")
-                response = input(f"Version {self.version} already exists. Overwrite? [y/N]: ")
-                if response.lower() != "y":
+                if not confirm(f"Version {self.version} already exists. Overwrite? [y/N]"):
                     logger.info("Aborted by user")
                     return False
 

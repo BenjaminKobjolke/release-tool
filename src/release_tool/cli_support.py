@@ -1,13 +1,25 @@
-"""Shared CLI plumbing: logging setup and the exception-to-exit-code contract.
+"""Shared CLI plumbing: logging, prompts, and exception-to-exit-code handling.
 
 Lives apart from ``cli`` so every subcommand module can import it without a
 circular import back through the dispatcher.
 """
 
 import logging
+import os
 from collections.abc import Callable
 
 from .exceptions import ConfigurationError, FTPError, ReleaseToolError
+
+WATCHER_ENV_VAR = "TICKETS_WATCHER_COMMAND_RUN"
+WATCHER_INPUT_MARKER = "::tw-input-line::"
+
+
+def confirm(prompt: str) -> bool:
+    """Ask a y/N question and return True only for ``y``."""
+    if os.environ.get(WATCHER_ENV_VAR) == "1":
+        # Protocol output must reach stdout directly before input blocks.
+        print(WATCHER_INPUT_MARKER, flush=True)
+    return input(f"{prompt}: ").strip().lower() == "y"
 
 
 def setup_logging(verbose: bool) -> None:

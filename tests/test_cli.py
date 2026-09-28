@@ -4,7 +4,43 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from release_tool.cli import main, parse_args, parse_create_args, run
+from release_tool.cli_support import WATCHER_ENV_VAR, confirm
 from release_tool.exceptions import FTPError
+
+
+class TestConfirm:
+    @patch("builtins.input", return_value="y")
+    def test_watcher_marker_precedes_prompt(
+        self, mock_input: MagicMock, monkeypatch, capsys
+    ) -> None:
+        monkeypatch.setenv(WATCHER_ENV_VAR, "1")
+
+        assert confirm("Publish X? [y/N]") is True
+        assert capsys.readouterr().out == "::tw-input-line::\n"
+        mock_input.assert_called_once_with("Publish X? [y/N]: ")
+
+    @patch("builtins.input", return_value="y")
+    def test_no_marker_outside_watcher(self, mock_input: MagicMock, monkeypatch, capsys) -> None:
+        monkeypatch.delenv(WATCHER_ENV_VAR, raising=False)
+
+        assert confirm("Publish X? [y/N]") is True
+        assert capsys.readouterr().out == ""
+        mock_input.assert_called_once_with("Publish X? [y/N]: ")
+
+    @patch("builtins.input", return_value="y")
+    def test_no_marker_for_other_env_value(
+        self, mock_input: MagicMock, monkeypatch, capsys
+    ) -> None:
+        monkeypatch.setenv(WATCHER_ENV_VAR, "0")
+
+        assert confirm("Publish X? [y/N]") is True
+        assert capsys.readouterr().out == ""
+
+    @patch("builtins.input", side_effect=[" Y ", "n", ""])
+    def test_only_y_confirms(self, mock_input: MagicMock) -> None:
+        assert confirm("Continue? [y/N]") is True
+        assert confirm("Continue? [y/N]") is False
+        assert confirm("Continue? [y/N]") is False
 
 
 class TestParseArgs:
