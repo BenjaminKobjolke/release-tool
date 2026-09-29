@@ -236,14 +236,20 @@ the project's `docs/CREATE_NEW_RELEASE.md`, discovers its `tools/*.bat`, and wri
 
    ```bat
    @echo off
+   setlocal
    cd /d D:\GIT\BenjaminKobjolke\release-tool
    call uv run python -m release_tool create "%~dp0release_create.ini" --project-root "%~dp0.." %*
+   set "RELEASE_EXIT_CODE=%ERRORLEVEL%"
    cd /d "%~dp0"
+   endlocal & exit /b %RELEASE_EXIT_CODE%
    ```
 
    `%~dp0` is the bat's own folder (`…\tools\`), so `"%~dp0release_create.ini"`
    is the config and `"%~dp0.."` is the project root. `%*` forwards
-   `--internal` / `--dry-run`. See `examples/release_create.bat`.
+   `--internal` / `--dry-run`. The exit code is captured right after the `call`
+   because the trailing `cd` would reset `ERRORLEVEL`, so callers (for example
+   Tickets Watcher command runs) see a failed release as failed. See
+   `examples/release_create.bat`.
 
 It also points the project's publish bat at `previous_version_file` (reads it for
 `--previous-version`) and gitignores that file.
