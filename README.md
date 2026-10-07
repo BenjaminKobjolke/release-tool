@@ -121,6 +121,9 @@ release-tool create release_create.ini
 # Internal test build: skip release notes, tag as INTERNAL
 release-tool create --internal
 
+# Keep a manually set version name for one full release
+release-tool create --keep-version-name
+
 # Preview the resolved label and every command without executing anything
 release-tool create --dry-run
 ```
@@ -140,6 +143,7 @@ flushed `::tw-input-line::` line so the Tickets app can display and answer it.
    `codex exec --dangerously-bypass-approvals-and-sandbox`; abort if it still
    doesn't appear.
 3. **Bump the build**, then **translate** (unless `english_only`), then **build**.
+   With `bump_version_name = true`, full releases also bump the version name.
    If build fails, the build counter is rolled back automatically. Set
    `build_self_contained = true` when the project's `build` bat already does its
    own bump/translate/rollback (a monolithic release script) — `create` then only
@@ -170,6 +174,7 @@ publish_platform = Google Play Store ; named in the publish prompt (comma-list f
 ; versioning = build                      ; build (counter) or semver (bump version's last segment)
 ; english_only = false
 ; build_self_contained = false       ; true => build bat owns bump/translate/rollback itself
+; bump_version_name = false          ; full releases also bump the version name
 
 [Bats]
 ; All paths relative to the project root; omit a line to keep the default.

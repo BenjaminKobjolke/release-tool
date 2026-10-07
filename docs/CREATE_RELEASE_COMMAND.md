@@ -2,8 +2,8 @@
 
 The `create` subcommand runs a project's **whole** release in one command. It
 sequences that project's existing batch files, git, and (only when release notes
-are missing) a headless Codex call. It does **not** reimplement build or version
-logic — it orchestrates the tools the project already has.
+are missing) a headless Codex call. It uses the project's build/version bats;
+the optional version-name bump edits the version file directly.
 
 This is separate from the base `release-tool` command (FTP publish of a single
 file). The publish step of `create` just runs the project's own publish bat,
@@ -27,6 +27,9 @@ release-tool create path\to\tools\release_create.ini --project-root path\to\proj
 # Internal test build: skip release notes, tag as INTERNAL
 release-tool create --internal
 
+# Ship a manually set version name without the configured name bump
+release-tool create --keep-version-name
+
 # Preview the resolved label and every command without executing anything
 release-tool create --dry-run
 
@@ -39,6 +42,7 @@ release-tool create --verbose
 | `config` (positional) | Path to the create config INI. Default: `release_create.ini` in the cwd. |
 | `--project-root` | Root the `[Bats]` paths and `notes_dir` resolve against. Default: the cwd. Set it when running from another directory (e.g. the launcher bat cd's into the release-tool repo). |
 | `--internal` | Internal test build: skip release notes, commit/tag as `INTERNAL`. |
+| `--keep-version-name` | Skip the opt-in version-name bump for this run. |
 | `--dry-run` | Print the resolved label and the exact commands without running the mutating ones. |
 | `--verbose` | Enable debug logging. |
 
@@ -51,6 +55,8 @@ release-tool create --verbose
    label is formed depends on **`versioning`** (see "Versioning modes"):
    - `build` (default): `previous = <version>_<build>`, `shipping =
      <version>_<build+1>` — build from `build_get`.
+     With `bump_version_name = true`, shipping and notes use the bumped name,
+     while previous keeps the current name.
    - `semver`: `previous = <version>`, `shipping = <version>` with its last dotted
      segment +1 (`0.1.6` → `0.1.7`) — `build_get` is not read.
 
@@ -61,12 +67,13 @@ release-tool create --verbose
    `codex exec --dangerously-bypass-approvals-and-sandbox` (authors **only**
    `en.json` — no translate, no build). If the file still doesn't appear, the run
    aborts with a message to author it manually or run `/release:create-release-notes`.
-3. **Bump the build** — `build_increment`. **Skipped when `build_self_contained =
+3. **Bump the build** — `build_increment`, then write the new version name on
+   full releases when `bump_version_name = true`. **Skipped when `build_self_contained =
    true`** (see "Self-contained build bats").
 4. **Translate** — `translate` bat (skipped when `english_only = true`, and skipped
    when `build_self_contained = true`).
-5. **Build** — `build` bat. **If it fails, `build_decrement` rolls the counter
-   back** so the label doesn't drift ahead, then the run aborts. Skipped when
+5. **Build** — `build` bat. **If it fails, the version name is restored and
+   `build_decrement` rolls the counter back** so the label doesn't drift ahead, then the run aborts. Skipped when
    `build_self_contained = true` — the build bat is trusted to roll back itself.
 6. **Record the previous version** — write the previous (online) label to
    `previous_version_file` (default `tools/previous_version.txt`). The publish bat
@@ -98,7 +105,8 @@ release-tool create --verbose
 
 `versioning` selects how the shipping label is derived and which bats are used:
 
-- **`build`** (default) — version-fixed + build-incrementing. Label =
+- **`build`** (default) — build-incrementing, with a fixed version name unless
+  `bump_version_name` is enabled. Label =
   `label_format` (default `{version}_{build}`); the build integer comes from
   `build_get` and is bumped by `build_increment` (rolled back by `build_decrement`
   on build failure). Use when the semver version is stable across many builds.
@@ -107,6 +115,25 @@ release-tool create --verbose
   `build_increment`/`build_decrement` are the project's version bump/rollback bats
   (e.g. `increment_version.bat` writing `version.txt`). Use for projects whose
   release *is* a patch bump.
+
+## Version name bump (`bump_version_name`)
+
+Set `[Release] bump_version_name = true` to raise the last dotted segment of
+the version name on each full release: `1.1.0+1359` becomes `1.1.1+1360`.
+The default is `false`, so existing projects keep their current labels.
+`--internal` keeps the name and bumps only the build. After manually setting a
+minor or major version such as `1.2.0`, use `--keep-version-name` to ship that
+name once; the next plain `create` run bumps it to `1.2.1`.
+
+`version_file` defaults to `pubspec.yaml`, relative to the project root. Only
+its `version:` line is spliced; blank lines and line endings survive. No new
+`[Bats]` keys or project bats are needed. Before any mutation, `create` aborts
+if the last segment is not numeric, the file is missing, or its name or build
+disagrees with `version_get` or `build_get`. The option cannot be combined with
+`versioning = semver` or `build_self_contained = true`.
+
+A failed translate or build restores the name and build. Declining the publish
+or commit prompt after a successful build leaves the bumped version in place.
 
 ## Self-contained build bats
 
@@ -169,6 +196,8 @@ publish_platform = Google Play Store
 ; previous_version_file = tools/previous_version.txt  ; where the online version is recorded
 ; english_only = false               ; true => skip the translate step
 ; build_self_contained = false       ; true => build bat owns bump/translate/rollback itself (see "Self-contained build bats")
+; bump_version_name = false          ; full releases also bump the version name
+; version_file = pubspec.yaml        ; file containing version: <name>+<build>
 
 [Bats]
 ; All paths are relative to the project root. Omit a line to keep the default.
@@ -210,6 +239,8 @@ publish = tools/publish_release.bat
 | `[Release]` | `previous_version_file` | `tools/previous_version.txt` | Where the previous (online) version is recorded for the publish bat. Gitignore it. |
 | `[Release]` | `english_only` | `false` | `true` skips the translate step. |
 | `[Release]` | `build_self_contained` | `false` | `true` skips `build_increment`/`translate`/`build_decrement` — the `build` bat owns them. See "Self-contained build bats". |
+| `[Release]` | `bump_version_name` | `false` | On full releases, bump the last dotted version-name segment along with the build. |
+| `[Release]` | `version_file` | `pubspec.yaml` | Version file relative to the project root when `bump_version_name` is on. |
 | `[Bats]` | `version_get` | `tools/version_get.bat` | Prints the version. |
 | `[Bats]` | `build_get` | `tools/build_get.bat` | Prints the current build integer. |
 | `[Bats]` | `build_increment` | `tools/build_increment.bat` | Bumps the build counter. Unused under `build_self_contained`. |
@@ -246,7 +277,7 @@ the project's `docs/CREATE_NEW_RELEASE.md`, discovers its `tools/*.bat`, and wri
 
    `%~dp0` is the bat's own folder (`…\tools\`), so `"%~dp0release_create.ini"`
    is the config and `"%~dp0.."` is the project root. `%*` forwards
-   `--internal` / `--dry-run`. The exit code is captured right after the `call`
+   `--internal` / `--dry-run` / `--keep-version-name`. The exit code is captured right after the `call`
    because the trailing `cd` would reset `ERRORLEVEL`, so callers (for example
    Tickets Watcher command runs) see a failed release as failed. See
    `examples/release_create.bat`.

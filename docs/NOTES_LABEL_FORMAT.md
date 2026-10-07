@@ -45,6 +45,8 @@ Result for build 1267 → 1268:
   configs behave exactly as before.
 - **Placeholders:** same as `label_format` — `{version}` (from `version_get`,
   trailing `_<build>` stripped) and `{build}` (from `build_get`, the *next* build).
+  With `bump_version_name = true`, `{version}` is the bumped name for shipping
+  and notes labels.
 - **`versioning = semver`:** there is no build counter, so the notes label always
   equals the shipping version; `notes_label_format` has no effect in semver mode.
 
