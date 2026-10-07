@@ -6,6 +6,7 @@ version/build bats actually execute; every mutating step is dry-run logged.
 Windows-only, because it invokes `cmd /c call` on .bat files.
 """
 
+import logging
 import sys
 from pathlib import Path
 
@@ -127,3 +128,49 @@ def test_create_dry_run_self_contained_multichannel_resolves(
     exit_code = main(["create", "release_create.ini", "--dry-run"])
 
     assert exit_code == 0
+
+
+def _make_version_name_project(root: Path) -> Path:
+    tools = root / "tools"
+    tools.mkdir()
+    (tools / "version_get.bat").write_text("@echo off\necho 1.1.0\n")
+    (tools / "build_get.bat").write_text("@echo off\necho 1359\n")
+    for name in (
+        "build_increment",
+        "build_decrement",
+        "build_release",
+        "translator_app-release-notes",
+    ):
+        (tools / f"{name}.bat").write_text("@echo off\n")
+    notes = root / "release_notes" / "1360"
+    notes.mkdir(parents=True)
+    (notes / "en.json").write_text('{"notes": ["x"]}')
+    version_path = root / "pubspec.yaml"
+    version_path.write_bytes(b"name: app\r\nversion: 1.1.0+1359\r\n\r\n")
+    (root / "release_create.ini").write_text(
+        "[Release]\nscope = app\nlabel_format = {version}+{build}\n"
+        "notes_label_format = {build}\nbump_version_name = true\n"
+    )
+    return version_path
+
+
+@pytest.mark.parametrize(
+    ("extra", "label"),
+    [("", "1.1.1+1360"), ("--internal", "1.1.0+1360"), ("--keep-version-name", "1.1.0+1360")],
+)
+def test_version_name_dry_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    extra: str,
+    label: str,
+) -> None:
+    path = _make_version_name_project(tmp_path)
+    original = path.read_bytes()
+    monkeypatch.chdir(tmp_path)
+
+    with caplog.at_level(logging.INFO):
+        assert main(["create", "release_create.ini", "--dry-run", *([extra] if extra else [])]) == 0
+
+    assert path.read_bytes() == original
+    assert f"Next release label: {label}" in caplog.text

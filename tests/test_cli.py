@@ -98,6 +98,10 @@ class TestParseCreateArgs:
 
         assert args.project_root == Path("X")
 
+    def test_keep_version_name_flag(self) -> None:
+        assert parse_create_args(["cfg.ini"]).keep_version_name is False
+        assert parse_create_args(["cfg.ini", "--keep-version-name"]).keep_version_name is True
+
 
 class TestRun:
     """Tests for run function."""

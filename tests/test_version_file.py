@@ -153,6 +153,58 @@ class TestMultipleOccurrences:
         assert path.read_bytes() == original
 
 
+class TestSetName:
+    @pytest.mark.parametrize("eol", ["\n", "\r\n"])
+    def test_changes_only_name_and_round_trips(self, tmp_path: Path, eol: str) -> None:
+        path = tmp_path / "pubspec.yaml"
+        write_file(path, "  version: 1.1.0+1359", eol)
+        original = path.read_bytes()
+        version_file = VersionFile(path)
+
+        old, new = version_file.set_name("1.1.1")
+
+        assert (old.label, new.label) == ("1.1.0+1359", "1.1.1+1359")
+        assert path.read_bytes() == original.replace(b"1.1.0", b"1.1.1")
+        version_file.set_name("1.1.0")
+        assert path.read_bytes() == original
+
+    def test_leaves_a_leading_zero_build_token_alone(self, tmp_path: Path) -> None:
+        """A name-only write must not normalise `+01359` to `+1359`."""
+        path = tmp_path / "pubspec.yaml"
+        write_file(path, "version: 1.1.0+01359")
+        original = path.read_bytes()
+        version_file = VersionFile(path)
+
+        version_file.set_name("1.1.1")
+
+        assert path.read_bytes() == original.replace(b"1.1.0", b"1.1.1")
+        version_file.set_name("1.1.0")
+        assert path.read_bytes() == original
+
+    def test_format_without_name_is_rejected(self, tmp_path: Path) -> None:
+        path = tmp_path / "build.gradle.kts"
+        write_file(path, "versionCode = 9")
+        original = path.read_bytes()
+
+        with pytest.raises(ConfigurationError, match="version name"):
+            VersionFile(path, "gradle_kts").set_name("1.1.1")
+
+        assert path.read_bytes() == original
+
+    def test_keeps_version_line_spacing_on_round_trip(self, tmp_path: Path) -> None:
+        path = tmp_path / "pubspec.yaml"
+        write_file(path, "  version:   1.1.0+1359  ", "\r\n")
+        original = path.read_bytes()
+        version_file = VersionFile(path)
+
+        version_file.bump()
+        version_file.set_name("1.1.1")
+        version_file.set_name("1.1.0")
+        version_file.bump(-1)
+
+        assert path.read_bytes() == original
+
+
 class TestErrors:
     """Failure modes shared by every format."""
 

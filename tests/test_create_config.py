@@ -26,6 +26,8 @@ class TestCreateConfig:
         assert config.versioning == "build"
         assert config.english_only is False
         assert config.build_self_contained is False
+        assert config.bump_version_name is False
+        assert config.version_file == Path("pubspec.yaml")
         assert config.bats.version_get == "tools/version_get.bat"
         assert config.bats.build == "tools/build_release.bat"
         # publish has no default -> None means build-and-stop
@@ -145,6 +147,27 @@ class TestCreateConfig:
         with pytest.raises(ConfigurationError, match="build_self_contained"):
             CreateConfig.from_ini_file(config_path)
 
+    def test_version_name_options(self, tmp_path: Path) -> None:
+        path = tmp_path / "release_create.ini"
+        path.write_text("[Release]\nbump_version_name = true\nversion_file = app/pubspec.yaml\n")
+        config = CreateConfig.from_ini_file(path)
+        assert config.bump_version_name is True
+        assert config.version_file == Path("app/pubspec.yaml")
+
+    @pytest.mark.parametrize(
+        ("extra", "error"),
+        [
+            ("bump_version_name = maybe", "bump_version_name"),
+            ("bump_version_name = true\nversioning = semver", "semver"),
+            ("bump_version_name = true\nbuild_self_contained = true", "build_self_contained"),
+        ],
+    )
+    def test_invalid_version_name_options(self, tmp_path: Path, extra: str, error: str) -> None:
+        path = tmp_path / "release_create.ini"
+        path.write_text(f"[Release]\n{extra}\n")
+        with pytest.raises(ConfigurationError, match=error):
+            CreateConfig.from_ini_file(path)
+
     @pytest.mark.parametrize(
         ("publish_raw", "platform_raw", "expected"),
         [
@@ -182,8 +205,7 @@ class TestCreateConfig:
     ) -> None:
         config_path = tmp_path / "release_create.ini"
         config_path.write_text(
-            f"[Release]\npublish_platform = {platform_raw}\n"
-            f"[Bats]\npublish = {publish_raw}\n"
+            f"[Release]\npublish_platform = {platform_raw}\n[Bats]\npublish = {publish_raw}\n"
         )
 
         config = CreateConfig.from_ini_file(config_path)
