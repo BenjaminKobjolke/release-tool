@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .exceptions import ConfigurationError
 from .github_publisher import GitHubReleaseConfig
+from .version_file import DEFAULT_VERSION_FILE
 
 DEFAULT_SCOPE = "app"
 DEFAULT_NOTES_DIR = "release_notes"
@@ -91,6 +92,8 @@ class CreateConfig:
     bats: BatsConfig
     # None => no GitHub Release gate offered after commit/tag/push.
     github_release: GitHubReleaseConfig | None = None
+    bump_version_name: bool = False
+    version_file: Path = Path(DEFAULT_VERSION_FILE)
 
     @classmethod
     def from_ini_file(cls, path: Path) -> "CreateConfig":
@@ -109,6 +112,7 @@ class CreateConfig:
 
         english_only = _getboolean(parser, "Release", "english_only", False)
         build_self_contained = _getboolean(parser, "Release", "build_self_contained", False)
+        bump_version_name = _getboolean(parser, "Release", "bump_version_name", False)
 
         versioning = (
             release_section.get("versioning", DEFAULT_VERSIONING).strip().lower()
@@ -119,12 +123,20 @@ class CreateConfig:
                 f"Invalid 'versioning' value: {versioning!r}. "
                 f"Must be one of {sorted(VALID_VERSIONING)}."
             )
+        if bump_version_name and versioning == "semver":
+            raise ConfigurationError("bump_version_name cannot be used with versioning = semver")
+        if bump_version_name and build_self_contained:
+            raise ConfigurationError("bump_version_name cannot be used with build_self_contained")
 
         publish_bats = _split_list(bats_section.get("publish", ""))
         publish_names = _split_list(release_section.get("publish_platform", ""))
         publish_channels = [
             PublishChannel(
-                name=publish_names[i] if i < len(publish_names) and publish_names[i] else "the release target",
+                name=(
+                    publish_names[i]
+                    if i < len(publish_names) and publish_names[i]
+                    else "the release target"
+                ),
                 bat=bat,
             )
             for i, bat in enumerate(publish_bats)
@@ -145,12 +157,11 @@ class CreateConfig:
         )
 
         label_format = (
-            release_section.get("label_format", DEFAULT_LABEL_FORMAT).strip() or DEFAULT_LABEL_FORMAT
+            release_section.get("label_format", DEFAULT_LABEL_FORMAT).strip()
+            or DEFAULT_LABEL_FORMAT
         )
         # notes_label_format defaults to label_format so existing configs are unchanged.
-        notes_label_format = (
-            release_section.get("notes_label_format", "").strip() or label_format
-        )
+        notes_label_format = release_section.get("notes_label_format", "").strip() or label_format
 
         github_release = None
         if _getboolean(parser, "GitHubRelease", "enabled", False):
@@ -184,6 +195,11 @@ class CreateConfig:
             publish_channels=publish_channels,
             bats=bats,
             github_release=github_release,
+            bump_version_name=bump_version_name,
+            version_file=Path(
+                release_section.get("version_file", DEFAULT_VERSION_FILE).strip()
+                or DEFAULT_VERSION_FILE
+            ),
         )
 
 

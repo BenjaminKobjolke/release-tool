@@ -6,36 +6,20 @@ each step shells out through ``bat_runner``.
 """
 
 import logging
-from dataclasses import dataclass
 from pathlib import Path
 
 from .bat_runner import bat_command, capture_command, run_command
 from .cli_support import confirm
 from .create_config import CreateConfig, PublishChannel
-from .exceptions import ReleaseCreateError
+from .exceptions import ReleaseCreateError, ReleaseToolError
 from .github_publisher import GitHubPublisher, render_notes_markdown
+from .release_labels import ReleaseLabels, VersionNameBump, bump_last_segment
+from .version_file import VersionFile
 
 logger = logging.getLogger(__name__)
 
 RELEASE_TYPE = "RELEASE"
 INTERNAL_TYPE = "INTERNAL"
-
-
-@dataclass(frozen=True)
-class ReleaseLabels:
-    """The two labels a release deals with, derived from one version read.
-
-    ``previous`` is the version currently online (the file being replaced) — used
-    to name its backup folder. ``shipping`` is the label being released now.
-    ``notes`` keys the release-notes subfolder — usually equal to ``shipping``, but
-    ``notes_label_format`` can decouple it (e.g. build-number folders under a
-    version+build tag). All three derive from the same version/build read, so they
-    can never drift apart.
-    """
-
-    previous: str
-    shipping: str
-    notes: str
 
 
 class ReleaseCreator:
@@ -46,14 +30,18 @@ class ReleaseCreator:
         config: CreateConfig,
         project_root: Path,
         dry_run: bool = False,
+        version_file: VersionFile | None = None,
     ) -> None:
         self.config = config
         self.root = project_root
         self.dry_run = dry_run
+        self.version_file = version_file
 
-    def create(self, internal: bool = False) -> bool:
+    def create(self, internal: bool = False, keep_version_name: bool = False) -> bool:
         """Run the full release. Returns True on success."""
-        labels = self._compute_labels()
+        labels = self._compute_labels(
+            bump_name=self.version_file is not None and not internal and not keep_version_name
+        )
         logger.info(f"Next release label: {labels.shipping}")
 
         if not internal:
@@ -67,10 +55,19 @@ class ReleaseCreator:
         if not self_contained:
             self._run_bat(self.config.bats.build_increment)
         try:
+            if labels.name_bump is not None:
+                self._set_version_name(labels.name_bump.new)
             if not self.config.english_only and not self_contained:
                 self._run_bat(self.config.bats.translate)
             self._run_bat(self.config.bats.build)
-        except ReleaseCreateError:
+        # OSError too: the version-name write is real file I/O, and a failed
+        # write must not skip the rollback below.
+        except (ReleaseToolError, OSError):
+            if labels.name_bump is not None and not self.dry_run:
+                try:
+                    self._set_version_name(labels.name_bump.old)
+                except (ReleaseToolError, OSError):
+                    logger.exception("Could not restore the version name")
             if not self_contained:
                 logger.error("Build step failed; rolling back the version/build counter.")
                 self._run_bat(self.config.bats.build_decrement)
@@ -89,7 +86,7 @@ class ReleaseCreator:
     def _run_bat(self, bat_path: str) -> None:
         run_command(bat_command(bat_path), self.root, self.dry_run)
 
-    def _compute_labels(self) -> ReleaseLabels:
+    def _compute_labels(self, bump_name: bool = True) -> ReleaseLabels:
         """Derive the previous (online) and shipping labels from version/build."""
         version_out = capture_command(bat_command(self.config.bats.version_get), self.root)
 
@@ -101,22 +98,15 @@ class ReleaseCreator:
 
         if self.config.versioning == "semver":
             return self._semver_labels(version)
-        return self._build_labels(version)
+        return self._build_labels(version, bump_name)
 
     def _semver_labels(self, version: str) -> ReleaseLabels:
         """Semver mode: shipping = version with its last segment +1."""
-        parts = version.split(".")
-        try:
-            parts[-1] = str(int(parts[-1]) + 1)
-        except ValueError as e:
-            raise ReleaseCreateError(
-                f"version_get returned a non-numeric last segment: {version!r}"
-            ) from e
-        shipping = ".".join(parts)
+        shipping = bump_last_segment(version)
         # semver has no build counter, so notes share the shipping version.
         return ReleaseLabels(previous=version, shipping=shipping, notes=shipping)
 
-    def _build_labels(self, version: str) -> ReleaseLabels:
+    def _build_labels(self, version: str, bump_name: bool = True) -> ReleaseLabels:
         """Build mode: shipping = version + (current build + 1)."""
         build_out = capture_command(bat_command(self.config.bats.build_get), self.root)
         try:
@@ -125,11 +115,37 @@ class ReleaseCreator:
             raise ReleaseCreateError(
                 f"build_get returned a non-integer build: {build_out!r}"
             ) from e
+        name_bump = None
+        shipping_version = version
+        if bump_name and self.version_file is not None:
+            shipping_version = bump_last_segment(version)
+            current = self.version_file.read()
+            if current.name != version:
+                raise ReleaseCreateError(
+                    f"version_get returned {version!r}, but {self.version_file.path} "
+                    f"has {current.name!r}"
+                )
+            if current.build != build:
+                raise ReleaseCreateError(
+                    f"build_get returned {build}, but {self.version_file.path} has {current.build}"
+                )
+            name_bump = VersionNameBump(version, shipping_version)
         return ReleaseLabels(
             previous=self.config.label_format.format(version=version, build=build),
-            shipping=self.config.label_format.format(version=version, build=build + 1),
-            notes=self.config.notes_label_format.format(version=version, build=build + 1),
+            shipping=self.config.label_format.format(version=shipping_version, build=build + 1),
+            notes=self.config.notes_label_format.format(version=shipping_version, build=build + 1),
+            name_bump=name_bump,
         )
+
+    def _set_version_name(self, name: str) -> None:
+        """Write a name through VersionFile, or describe the dry-run change."""
+        assert self.version_file is not None
+        if self.dry_run:
+            logger.info(
+                f"[DRY RUN] Would set the version name to {name} in {self.version_file.path}"
+            )
+        else:
+            self.version_file.set_name(name)
 
     def _ensure_notes(self, label: str) -> None:
         """Ensure en.json exists for the shipping label; author via Codex if not."""

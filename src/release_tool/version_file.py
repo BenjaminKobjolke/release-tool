@@ -2,7 +2,6 @@
 
 import logging
 import re
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,13 +32,12 @@ class AppVersion:
 class VersionFormat:
     """How one project type spells its version line.
 
-    ``pattern`` must expose a ``build`` group, an ``indent`` group, and — where
-    the format carries a version name — a ``name`` group. The trailing lookahead
+    ``pattern`` must expose a ``build`` group and — where the format carries a
+    version name — a ``name`` group. The trailing lookahead
     keeps the line ending out of the match so a splice never rewrites it.
     """
 
     pattern: re.Pattern[str]
-    render: Callable[[str, AppVersion], str]
 
 
 VERSION_FORMATS: dict[str, VersionFormat] = {
@@ -49,7 +47,6 @@ VERSION_FORMATS: dict[str, VersionFormat] = {
             r"^(?P<indent>[ \t]*)version:[ \t]*(?P<name>\S+?)\+(?P<build>\d+)[ \t]*(?=\r?$)",
             re.MULTILINE,
         ),
-        render=lambda indent, version: f"{indent}version: {version.name}+{version.build}",
     ),
     # Gradle Kotlin DSL: versionCode = 1
     "gradle_kts": VersionFormat(
@@ -57,7 +54,6 @@ VERSION_FORMATS: dict[str, VersionFormat] = {
             r"^(?P<indent>[ \t]*)versionCode\b[ \t]*=[ \t]*(?P<build>\d+)[ \t]*(?=\r?$)",
             re.MULTILINE,
         ),
-        render=lambda indent, version: f"{indent}versionCode = {version.build}",
     ),
     # Gradle Groovy: versionCode 201 (no '='; \b keeps versionCodeOverride out)
     "gradle_groovy": VersionFormat(
@@ -65,7 +61,6 @@ VERSION_FORMATS: dict[str, VersionFormat] = {
             r"^(?P<indent>[ \t]*)versionCode\b[ \t]+(?P<build>\d+)[ \t]*(?=\r?$)",
             re.MULTILINE,
         ),
-        render=lambda indent, version: f"{indent}versionCode {version.build}",
     ),
     # Gradle version catalog: versionCode = "38"
     "toml": VersionFormat(
@@ -73,7 +68,6 @@ VERSION_FORMATS: dict[str, VersionFormat] = {
             r"^(?P<indent>[ \t]*)versionCode\b[ \t]*=[ \t]*\"(?P<build>\d+)\"[ \t]*(?=\r?$)",
             re.MULTILINE,
         ),
-        render=lambda indent, version: f'{indent}versionCode = "{version.build}"',
     ),
 }
 
@@ -96,12 +90,11 @@ class VersionFile:
     """Reads and rewrites the build number in a project's version file.
 
     One splice implementation over a table of formats (``VERSION_FORMATS``), so
-    supporting a new project type means adding a pattern and a render function —
-    no subclass, no factory. The pattern must expose ``indent`` and ``build``
-    groups, plus ``name`` if that format carries a version name.
+    supporting a new project type means adding a pattern. The pattern must
+    expose ``build``, plus ``name`` if that format carries a version name.
 
-    Only the build number is ever written. A semver name (Flutter's `version:`,
-    Gradle's `versionName`) is edited by hand.
+    The build number is written by `bump`; `set_name` writes the Flutter version
+    name for create's optional version-name bump.
 
     A file may declare the build number more than once — monocles_chat sets
     `versionCode` in both `defaultConfig` and a product flavor. Every occurrence
@@ -129,17 +122,36 @@ class VersionFile:
             )
 
         new = AppVersion(name=old.name, build=new_build)
-        # Splice from the end so each replacement leaves earlier offsets valid.
+        self._write(new, text, matches)
+        logger.info(f"Build number: {old.label} -> {new.label}")
+        return old, new
+
+    def set_name(self, name: str) -> tuple[AppVersion, AppVersion]:
+        """Set the version name in place, preserving the build number."""
+        old, text, matches = self._parse()
+        if not old.name:
+            raise ConfigurationError(f"Version file has no version name: {self.path}")
+        new = AppVersion(name=name, build=old.build)
+        self._write(new, text, matches)
+        logger.info(f"Version name: {old.label} -> {new.label}")
+        return old, new
+
+    def _write(self, new: AppVersion, text: str, matches: list[re.Match[str]]) -> None:
+        """Splice version fields without changing spacing or line endings."""
+        # Work backwards so each replacement leaves earlier offsets valid.
         for match in reversed(matches):
-            start, end = match.span()
-            line = self.format.render(match.group("indent"), new)
-            text = f"{text[:start]}{line}{text[end:]}"
+            # An unchanged build keeps its own spelling: a name-only write must
+            # not normalise `+01359` to `+1359`.
+            if int(match.group("build")) != new.build:
+                start, end = match.span("build")
+                text = f"{text[:start]}{new.build}{text[end:]}"
+            if "name" in match.groupdict():
+                start, end = match.span("name")
+                text = f"{text[:start]}{new.name}{text[end:]}"
 
         # newline="" so the file's own CRLF/LF survive the rewrite untouched.
         with self.path.open("w", encoding="utf-8", newline="") as f:
             f.write(text)
-        logger.info(f"Build number: {old.label} -> {new.label}")
-        return old, new
 
     def _parse(self) -> tuple[AppVersion, str, list[re.Match[str]]]:
         """Return the parsed version, the raw file text, and every matching line."""

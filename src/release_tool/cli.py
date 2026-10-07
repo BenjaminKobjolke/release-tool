@@ -13,6 +13,7 @@ from .create_config import CreateConfig
 from .github_publisher import GitHubPublisher, GitHubReleaseConfig, render_notes_markdown
 from .release_creator import ReleaseCreator
 from .release_manager import ReleaseManager
+from .version_file import VersionFile
 
 __all__ = ["main", "parse_args", "parse_create_args", "run", "setup_logging"]
 
@@ -100,6 +101,11 @@ def parse_create_args(args: list[str]) -> argparse.Namespace:
         help="Internal test build: skip release notes, tag as INTERNAL",
     )
     parser.add_argument(
+        "--keep-version-name",
+        action="store_true",
+        help="Ship the version name as it is (skip bump_version_name for this run)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Preview the resolved label and commands without executing",
@@ -120,12 +126,17 @@ def run_create(args: list[str]) -> int:
 
     def action() -> bool:
         config = CreateConfig.from_ini_file(parsed.config)
+        project_root = (parsed.project_root or Path.cwd()).resolve()
+        version_file = (
+            VersionFile(project_root / config.version_file) if config.bump_version_name else None
+        )
         creator = ReleaseCreator(
             config=config,
-            project_root=(parsed.project_root or Path.cwd()).resolve(),
+            project_root=project_root,
             dry_run=parsed.dry_run,
+            version_file=version_file,
         )
-        return creator.create(internal=parsed.internal)
+        return creator.create(internal=parsed.internal, keep_version_name=parsed.keep_version_name)
 
     return guarded(logger, action)
 
