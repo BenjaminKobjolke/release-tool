@@ -220,3 +220,6 @@ PLAN_DIRECTORY_SYNC.md
 tickets/
 # Private named FTP profiles hold deployment credentials.
 /ftp_profiles.ini
+tmp/commit_msg.tmp
+code_analysis_results/
+.reasonix/
