@@ -211,3 +211,35 @@ password = pass
             result = main([str(test_file), str(config_path)])
 
         assert result == 130
+
+    def test_check_ftp_all_profiles_ok_returns_zero(self, tmp_path: Path) -> None:
+        from release_tool.ftp_check import ProfileCheckResult
+
+        profiles = tmp_path / "profiles.ini"
+        with patch(
+            "release_tool.cli_ftp_check.check_profiles",
+            return_value=[ProfileCheckResult("one", True, "host:21 /")],
+        ):
+            assert main(["check-ftp", "--profiles", str(profiles)]) == 0
+
+    def test_check_ftp_failure_returns_one(self, tmp_path: Path) -> None:
+        from release_tool.ftp_check import ProfileCheckResult
+
+        profiles = tmp_path / "profiles.ini"
+        with patch(
+            "release_tool.cli_ftp_check.check_profiles",
+            return_value=[
+                ProfileCheckResult("one", True, "host:21 /"),
+                ProfileCheckResult("two", False, "bad"),
+            ],
+        ):
+            assert main(["check-ftp", "--profiles", str(profiles)]) == 1
+
+    def test_check_ftp_configuration_error_returns_two(self, tmp_path: Path) -> None:
+        from release_tool.exceptions import ConfigurationError
+
+        with patch(
+            "release_tool.cli_ftp_check.check_profiles",
+            side_effect=ConfigurationError("Configuration file not found"),
+        ):
+            assert main(["check-ftp", "--profiles", str(tmp_path / "missing.ini")]) == 2

@@ -81,6 +81,10 @@ Shared credentials and paths can live once in the gitignored
 `[FTP] profile = <name>` and may override any key locally. See
 [`docs/FTP_PROFILES.md`](docs/FTP_PROFILES.md).
 
+Check the login and configured remote folder for every saved profile with
+`release-tool check-ftp`. The check is read-only and supports `--profiles` and
+`--timeout`; see [the FTP profiles guide](docs/FTP_PROFILES.md#check-all-profiles).
+
 ### Pre-Signing Workflow
 
 When `[PreSigning]` is enabled, the tool performs these steps before FTP upload:

@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .cli_android import run_android, run_bump_build
+from .cli_ftp_check import run_check_ftp
 from .cli_support import guarded, setup_logging
 from .cli_sync import run_sync
 from .config import ReleaseConfig
@@ -208,6 +209,8 @@ def main(args: list[str] | None = None) -> int:
         return run_bump_build(argv[1:])
     if argv and argv[0] == "sync":
         return run_sync(argv[1:])
+    if argv and argv[0] == "check-ftp":
+        return run_check_ftp(argv[1:])
 
     parsed_args = parse_args(args)
     return run(parsed_args)

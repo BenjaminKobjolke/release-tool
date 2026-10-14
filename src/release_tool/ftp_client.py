@@ -59,13 +59,35 @@ class FTPClient:
     def disconnect(self) -> None:
         """Close FTP connection gracefully."""
         if self._ftp:
-            try:
-                self._ftp.quit()
-            except (ftplib.Error, OSError, EOFError):
-                with contextlib.suppress(Exception):
-                    self._ftp.close()
+            self._close(self._ftp)
             self._ftp = None
             logger.info("Disconnected from FTP server")
+
+    def probe(self, timeout: float) -> None:
+        """Check login and remote path without creating folders or hanging."""
+        ftp = ftplib.FTP()
+        try:
+            ftp.connect(self.config.host, self.config.port, timeout=timeout)
+            ftp.login(self.config.username, self.config.password)
+
+            if self.config.remote_path and self.config.remote_path != "/":
+                try:
+                    ftp.cwd(self.config.remote_path)
+                except ftplib.error_perm as e:
+                    raise FTPError(f"Remote path not found: {self.config.remote_path}: {e}") from e
+        except (ftplib.Error, OSError, EOFError) as e:
+            raise FTPError(f"Failed to connect to FTP server: {e}") from e
+        finally:
+            self._close(ftp)
+
+    @staticmethod
+    def _close(ftp: ftplib.FTP) -> None:
+        """Try FTP QUIT, then close the socket if the server won't say goodbye."""
+        try:
+            ftp.quit()
+        except Exception:
+            with contextlib.suppress(Exception):
+                ftp.close()
 
     @contextmanager
     def connection(self) -> Generator["FTPClient", None, None]:

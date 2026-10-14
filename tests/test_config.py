@@ -11,6 +11,7 @@ from release_tool.config import (
     OldFilePolicy,
     ReleaseConfig,
     SubfolderNaming,
+    build_ftp_config,
     parse_ftp_config,
 )
 from release_tool.exceptions import ConfigurationError
@@ -34,6 +35,32 @@ class TestFTPConfig:
         assert config.username == "user"
         assert config.password == "pass"
         assert config.remote_path == "/path"
+
+    def test_build_from_values(self) -> None:
+        config = build_ftp_config(
+            {
+                "host": "ftp.example.com",
+                "username": "user",
+                "password": "pass",
+                "remote_path": "/releases",
+            }
+        )
+
+        assert config == FTPConfig(
+            host="ftp.example.com",
+            port=21,
+            username="user",
+            password="pass",
+            remote_path="/releases",
+        )
+
+    def test_build_requires_host(self) -> None:
+        with pytest.raises(ConfigurationError, match="FTP host is required"):
+            build_ftp_config({"username": "user"})
+
+    def test_build_rejects_invalid_port(self) -> None:
+        with pytest.raises(ConfigurationError, match="Invalid FTP configuration"):
+            build_ftp_config({"host": "ftp.example.com", "username": "user", "port": "nope"})
 
 
 class TestOldFileConfig:

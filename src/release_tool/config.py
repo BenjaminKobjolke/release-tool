@@ -102,6 +102,11 @@ def parse_ftp_config(
         path = PROFILES_FILE if profiles_path is None else profiles_path
         values = {**_load_ftp_profile(name, path), **values}
 
+    return build_ftp_config(values)
+
+
+def build_ftp_config(values: dict[str, str]) -> FTPConfig:
+    """Build and validate an FTP configuration from one profile's values."""
     try:
         ftp_config = FTPConfig(
             host=values.get("host", ""),

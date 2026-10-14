@@ -31,3 +31,23 @@ current working directory. A named profile fails fast when `ftp_profiles.ini`
 is missing or when its section is unknown; the latter error lists the available
 profile names. Configurations without `profile` keep working without reading the
 profiles file.
+
+## Check all profiles
+
+Run this from a shell with the release tool installed:
+
+```bash
+release-tool check-ftp
+```
+
+The command checks every section in `ftp_profiles.ini` by connecting, logging in,
+and opening its configured `remote_path`. It is read-only: it does not create
+missing folders or upload, delete, or change files. Each profile prints an
+`OK` or `FAIL` line, followed by a summary. Connection attempts time out after
+15 seconds by default.
+
+Use `--profiles <path>` to check a different INI file or
+`--timeout <seconds>` to change the connection timeout. Add `--verbose` for
+debug logging. The command exits with 0 when all profiles pass, 1 when one or
+more profiles fail, or 2 when the profiles file is missing or contains no
+profiles. Failed profile output redacts its configured password.
