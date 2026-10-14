@@ -40,6 +40,12 @@ Run this from a shell with the release tool installed:
 release-tool check-ftp
 ```
 
+From this checkout, `tools\check_ftp.bat` runs the same check and accepts the same options:
+
+```bat
+tools\check_ftp.bat
+```
+
 The command checks every section in `ftp_profiles.ini` by connecting, logging in,
 and opening its configured `remote_path`. It is read-only: it does not create
 missing folders or upload, delete, or change files. Each profile prints an
