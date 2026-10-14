@@ -263,12 +263,24 @@ the project's `docs/CREATE_NEW_RELEASE.md`, discovers its `tools/*.bat`, and wri
 1. `tools/release_create.ini` — the minimal config above.
 2. `tools/release_create.bat` — a launcher that runs the full release. It cd's
    into the release-tool repo (so `uv run` resolves this tool's venv — it is not
-   on `PATH`), then calls `create` pointed back at the project:
+   on `PATH`), then calls `create` pointed back at the project. The checkout
+   path is machine-specific, so it comes from a gitignored `tools/config.bat`
+   (`set "RELEASE_TOOL_DIR=..."`, tracked template `tools/config_example.bat`)
+   — the same file the `android` launcher uses, see `ANDROID_COMMAND.md`:
 
    ```bat
    @echo off
    setlocal
-   cd /d D:\GIT\BenjaminKobjolke\release-tool
+   if not exist "%~dp0config.bat" (
+       echo ERROR: tools\config.bat not found. Copy tools\config_example.bat to tools\config.bat and adjust it.
+       exit /b 2
+   )
+   call "%~dp0config.bat"
+   if not exist "%RELEASE_TOOL_DIR%\pyproject.toml" (
+       echo ERROR: RELEASE_TOOL_DIR in tools\config.bat is not a release-tool checkout: "%RELEASE_TOOL_DIR%"
+       exit /b 2
+   )
+   cd /d "%RELEASE_TOOL_DIR%"
    call uv run python -m release_tool create "%~dp0release_create.ini" --project-root "%~dp0.." %*
    set "RELEASE_EXIT_CODE=%ERRORLEVEL%"
    cd /d "%~dp0"

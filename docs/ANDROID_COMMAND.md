@@ -141,10 +141,22 @@ migrated, their exact configs, and the behavior changes that came with each.
 | `build_number_increment.bat` | Deleted, **or** kept as a shim calling `release-tool bump-build` when another script calls it (`build_release.bat`, or `create`'s `build_increment`) |
 | `build_number_decrement.bat` | Deleted — rollback is built in. Keep it as a `--decrement` shim if `release_create.ini` wires it as `build_decrement` |
 | `build_android.bat` | Kept as the `[Build] command` when it does more than call the compiler (release-notes assets, `GRADLE_USER_HOME`, a Gradle task) — minus its bump and upload |
-| `config.bat` (FTP/APK keys) | `android_release.ini`, gitignored |
+| `config.bat` (FTP/APK keys) | `android_release.ini`, gitignored. `config.bat` itself stays (or is created) for the machine-specific `RELEASE_TOOL_DIR` |
 
 Commit an `android_release_example.ini` next to the real one, and add the real
-one to `.gitignore` — it holds the FTP password.
+one to `.gitignore` — it holds the FTP password, unless the login comes from a
+[profile](FTP_PROFILES.md).
+
+The path to the release-tool checkout is machine-specific, so it is not written
+into the launcher. It lives in a gitignored `tools/config.bat`, with a tracked
+`tools/config_example.bat` next to it:
+
+```bat
+@echo off
+REM Machine-specific settings for the bats in tools\. Copy to config.bat (gitignored) and adjust.
+REM Checkout of https://github.com/BenjaminKobjolke release-tool (run `uv sync` in it once).
+set "RELEASE_TOOL_DIR=D:\GIT\BenjaminKobjolke\release-tool"
+```
 
 The launcher is not a one-liner, because two batch gotchas bite:
 
@@ -153,6 +165,17 @@ The launcher is not a one-liner, because two batch gotchas bite:
 setlocal
 REM `shift` below also shifts %0, so %~dp0 must be captured first.
 set "TOOLS_DIR=%~dp0"
+
+REM Machine-specific paths are kept out of git: config.bat is a local copy of config_example.bat.
+if not exist "%TOOLS_DIR%config.bat" (
+    echo ERROR: tools\config.bat not found. Copy tools\config_example.bat to tools\config.bat and adjust it.
+    exit /b 2
+)
+call "%TOOLS_DIR%config.bat"
+if not exist "%RELEASE_TOOL_DIR%\pyproject.toml" (
+    echo ERROR: RELEASE_TOOL_DIR in tools\config.bat is not a release-tool checkout: "%RELEASE_TOOL_DIR%"
+    exit /b 2
+)
 
 REM Translate the historical `debug`/`release` positional into the tool's flags.
 REM Built in a loop because %* ignores shift.
@@ -171,7 +194,7 @@ goto parse_args
 
 :run
 REM release-tool is not on PATH; cd into its repo so `uv run` finds the venv.
-cd /d D:\GIT\BenjaminKobjolke\release-tool
+cd /d "%RELEASE_TOOL_DIR%"
 call uv run python -m release_tool android "%TOOLS_DIR%android_release.ini" --project-root "%TOOLS_DIR%.."%ARGS%
 set "EXIT_CODE=%ERRORLEVEL%"
 cd /d "%TOOLS_DIR%"

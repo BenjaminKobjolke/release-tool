@@ -18,19 +18,20 @@ pytestmark = pytest.mark.skipif(
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-# The example launcher hardcodes the release-tool checkout it cd's into; swap it for
-# this checkout so the test does not depend on where the repo lives.
-EXAMPLE_LAUNCHER_REPO_LITERAL = "D:\\GIT\\BenjaminKobjolke\\release-tool"
 
 
 def _install_example_launcher(tmp_path: Path) -> Path:
-    """Copy the example launcher into a temp project's `tools\\`, pointing at this repo."""
+    """Copy the example launcher into a temp project's `tools\\`, pointing at this repo.
+
+    The launcher reads the release-tool checkout from the project's `tools\\config.bat`,
+    so the test writes one naming this checkout.
+    """
     tools = tmp_path / "tools"
     tools.mkdir()
     launcher = tools / "release_create.bat"
-    example = (REPO_ROOT / "examples" / "release_create.bat").read_text(encoding="utf-8")
-    launcher.write_text(
-        example.replace(EXAMPLE_LAUNCHER_REPO_LITERAL, str(REPO_ROOT)), encoding="utf-8"
+    launcher.write_bytes((REPO_ROOT / "examples" / "release_create.bat").read_bytes())
+    (tools / "config.bat").write_text(
+        f'@echo off\r\nset "RELEASE_TOOL_DIR={REPO_ROOT}"\r\n', encoding="utf-8", newline=""
     )
     return launcher
 
@@ -47,3 +48,15 @@ def test_example_launcher_propagates_failure_exit_code(tmp_path: Path) -> None:
     # An unknown argument makes argparse exit 2 before any build or mutation; a launcher
     # that swallows the code (the pre-fix `cd /d "%~dp0"`) would report 0 here.
     assert result.returncode == 2
+    # The launcher's own config preflight also exits 2 — make sure argparse was reached.
+    assert b"--bogus-arg" in result.stderr
+
+
+def test_example_launcher_fails_without_config_bat(tmp_path: Path) -> None:
+    launcher = _install_example_launcher(tmp_path)
+    (launcher.parent / "config.bat").unlink()
+
+    result = subprocess.run(["cmd", "/c", str(launcher)], capture_output=True, timeout=120)
+
+    assert result.returncode == 2
+    assert b"config.bat not found" in result.stdout
