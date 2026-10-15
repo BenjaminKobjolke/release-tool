@@ -13,5 +13,20 @@
     "tools\\run_integration_tests.bat": {
       "test": "green"
     }
+  },
+  "command_check_scripts": [
+    "check_ftp.bat",
+    "run_integration_tests.bat",
+    "run_tests.bat",
+    "tests.bat"
+  ],
+  "analysis_commands_seen": {
+    "scripts": [
+      "check_ftp.bat",
+      "run_integration_tests.bat",
+      "run_tests.bat",
+      "tests.bat"
+    ],
+    "tests": true
   }
 }
