@@ -8,7 +8,7 @@ each step shells out through ``bat_runner``.
 import logging
 from pathlib import Path
 
-from .bat_runner import bat_command, capture_command, run_command
+from .bat_runner import bat_command, capture_command, has_staged_changes, run_command
 from .cli_support import confirm
 from .create_config import CreateConfig, PublishChannel
 from .exceptions import ReleaseCreateError, ReleaseToolError
@@ -237,7 +237,11 @@ class ReleaseCreator:
         message = f"{release_type} ({self.config.scope}): {label}"
         # add -A so a freshly created release_notes/<label>/ folder is included.
         run_command(["git", "add", "-A"], self.root, self.dry_run)
-        run_command(["git", "commit", "-m", message], self.root, self.dry_run)
+        # Another session may already have committed the release files; tag and push anyway.
+        if self.dry_run or has_staged_changes(self.root):
+            run_command(["git", "commit", "-m", message], self.root, self.dry_run)
+        else:
+            logger.info(f"Nothing to commit for {label}; skipping git commit.")
         run_command(["git", "tag", label], self.root, self.dry_run)
         run_command(["git", "push"], self.root, self.dry_run)
         run_command(["git", "push", "origin", label], self.root, self.dry_run)

@@ -14,6 +14,12 @@ from release_tool.release_labels import VersionNameBump
 from release_tool.version_file import VersionFile
 
 
+@pytest.fixture(autouse=True)
+def mock_has_staged_changes():
+    with patch("release_tool.release_creator.has_staged_changes", return_value=True) as mock:
+        yield mock
+
+
 def make_config(
     *,
     publish: str | None = "tools/publish.bat",
@@ -84,6 +90,89 @@ def prepare_notes(root: Path, label: str = "1.0.0_22") -> None:
     notes = root / "release_notes" / label
     notes.mkdir(parents=True)
     (notes / "en.json").write_text("{}")
+
+
+class TestCommitStep:
+    """A clean index skips only the commit; tag and pushes still run."""
+
+    @patch("release_tool.release_creator.GitHubPublisher")
+    @patch("release_tool.release_creator.run_command")
+    @patch("release_tool.release_creator.capture_command", side_effect=["1.0.0", "21"])
+    @patch("builtins.input", side_effect=["y", "y"])
+    def test_clean_tree_skips_commit_but_tags_and_pushes(
+        self,
+        mock_input: MagicMock,
+        mock_capture: MagicMock,
+        mock_run: MagicMock,
+        mock_publisher_class: MagicMock,
+        mock_has_staged_changes: MagicMock,
+        tmp_path: Path,
+        caplog,
+    ) -> None:
+        mock_has_staged_changes.return_value = False
+        prepare_notes(tmp_path)
+        (tmp_path / "release_notes" / "1.0.0_22" / "en.json").write_text(
+            '{"title": "1.0.0_22", "notes": ["First"]}'
+        )
+        github_config = GitHubReleaseConfig(enabled=True, assets=["app.exe"])
+        creator = ReleaseCreator(
+            make_config(publish=None, github_release=github_config), tmp_path
+        )
+
+        with caplog.at_level(logging.INFO):
+            assert creator.create() is True
+
+        commands = ran(mock_run)
+        assert ["git", "commit", "-m", "RELEASE (app): 1.0.0_22"] not in commands
+        git_commands = [command for command in commands if command[0] == "git"]
+        assert git_commands == [
+            ["git", "add", "-A"],
+            ["git", "tag", "1.0.0_22"],
+            ["git", "push"],
+            ["git", "push", "origin", "1.0.0_22"],
+        ]
+        mock_publisher_class.return_value.publish.assert_called_once()
+        assert "Nothing to commit for 1.0.0_22; skipping git commit." in caplog.text
+
+    @patch("release_tool.release_creator.run_command")
+    @patch("release_tool.release_creator.capture_command", side_effect=["1.0.0", "21"])
+    @patch("builtins.input", return_value="y")
+    def test_commit_failure_still_raises(
+        self,
+        mock_input: MagicMock,
+        mock_capture: MagicMock,
+        mock_run: MagicMock,
+        mock_has_staged_changes: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        def fail_commit(cmd: list[str], cwd: Path, dry_run: bool = False) -> None:
+            if cmd[:2] == ["git", "commit"]:
+                raise ReleaseCreateError("commit failed")
+
+        mock_run.side_effect = fail_commit
+        prepare_notes(tmp_path)
+
+        with pytest.raises(ReleaseCreateError, match="commit failed"):
+            ReleaseCreator(make_config(publish=None), tmp_path).create()
+
+        assert mock_has_staged_changes.return_value is True
+        assert not any(command[:2] == ["git", "tag"] for command in ran(mock_run))
+
+    @patch("release_tool.release_creator.run_command")
+    @patch("release_tool.release_creator.capture_command", side_effect=["1.0.0", "21"])
+    def test_dry_run_does_not_check_staged(
+        self,
+        mock_capture: MagicMock,
+        mock_run: MagicMock,
+        mock_has_staged_changes: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        prepare_notes(tmp_path)
+
+        ReleaseCreator(make_config(publish=None), tmp_path, dry_run=True).create()
+
+        mock_has_staged_changes.assert_not_called()
+        assert ["git", "commit", "-m", "RELEASE (app): 1.0.0_22"] in ran(mock_run)
 
 
 class TestComputeLabel:

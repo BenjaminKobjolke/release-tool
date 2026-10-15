@@ -75,6 +75,24 @@ def capture_command(cmd: list[str], cwd: Path) -> str:
     return result.stdout.strip()
 
 
+def has_staged_changes(cwd: Path) -> bool:
+    """Return whether the index differs from HEAD.
+
+    ``git diff --cached --quiet`` exits 1 when staged changes exist, so that
+    status is an answer here; any other non-zero exit remains an error.
+    """
+    cmd = ["git", "diff", "--cached", "--quiet"]
+    printable = " ".join(cmd)
+    try:
+        result = subprocess.run(_resolve(cmd), cwd=cwd)
+    except OSError as e:
+        raise ReleaseCreateError(f"Failed to start command '{printable}': {e}") from e
+    if result.returncode == 1:
+        return True
+    _raise_on_failure(result.returncode, printable)
+    return False
+
+
 def _raise_on_failure(returncode: int, printable: str, stderr: str = "") -> None:
     """Raise ReleaseCreateError for a non-zero exit, appending stderr if present."""
     if returncode != 0:

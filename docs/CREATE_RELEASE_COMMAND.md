@@ -91,7 +91,8 @@ release-tool create --verbose
    `release_notes/<label>/` is included), `git commit -m "<TYPE> (<scope>): <label>"`,
    `git tag <label>`, `git push`, `git push origin <label>`. `<TYPE>` is `RELEASE`,
    or `INTERNAL` with `--internal`. **Independent of step 7** — declining publish
-   still lets you commit, and vice versa.
+   still lets you commit, and vice versa. If nothing is staged after `git add -A`,
+   the commit is skipped while the tag and pushes still run.
 9. **GitHub Release** (optional gate, only offered if step 8 actually ran) — with
    a `[GitHubRelease]` section present and `enabled = true`, asked
    `Create GitHub Release <tag>? [y/N]`. `y` → uploads `assets` (via the `gh` CLI)
