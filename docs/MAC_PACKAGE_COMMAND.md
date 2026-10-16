@@ -3,7 +3,8 @@
 `mac-package` takes a raw single-file macOS command-line binary and creates a
 signed, notarized, stapled `.pkg`. It runs on macOS because `codesign`,
 `pkgbuild`, `xcrun`, `pkgutil`, and `spctl` are supplied by Apple's toolchain.
-`.app` bundles packaged as `.dmg` or `.zip` are not supported.
+For an `.app` bundle or `.dmg` image, use
+[`mac-sign`](MAC_SIGN_COMMAND.md) instead.
 
 ```bash
 # Build a package using app config plus the shared mac_signing.ini
@@ -26,7 +27,8 @@ current directory.
    scripts folder, and Developer ID Installer identity.
 3. Submits the `.pkg` with `xcrun notarytool submit --wait` and parses its JSON
    result. Only `Accepted` proceeds; an Apple rejection stops before stapling
-   and reports the submission id and command for reading Apple's log.
+   and reports the submission id. The command fetches and prints Apple's
+   notarization issues when a submission id is available.
 4. Staples Apple's notarization ticket to the package.
 5. Verifies the package signature with `pkgutil --check-signature`.
 6. Assesses install policy with `spctl --assess --type install`.

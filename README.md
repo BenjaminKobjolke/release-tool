@@ -238,16 +238,24 @@ Seven projects have been migrated off their bundled `rclone.exe` bat chains —
 see [`docs/ANDROID_MIGRATION.md`](docs/ANDROID_MIGRATION.md) for their configs
 and the behavior changes involved.
 
-## Package a macOS CLI (`mac-package` subcommand)
+## Sign and package macOS artifacts (`mac-sign` and `mac-package`)
 
-Sign a raw macOS command-line binary, build its installer package, notarize it,
-and verify the stapled result. Publishing the `.pkg` remains a separate command.
-See [`docs/MAC_PACKAGE_COMMAND.md`](docs/MAC_PACKAGE_COMMAND.md) for setup and
-configuration.
+Use `mac-package` for a raw command-line binary that needs a signed installer
+`.pkg`. Use `mac-sign` for an `.app` bundle or `.dmg` image that a build tool has
+already produced. Both notarize, staple, and verify their output; publishing
+remains a separate command.
+See [`docs/MAC_PACKAGE_COMMAND.md`](docs/MAC_PACKAGE_COMMAND.md) and
+[`docs/MAC_SIGN_COMMAND.md`](docs/MAC_SIGN_COMMAND.md) for setup and configuration.
 
 ```bash
+# Build a signed installer package from a raw CLI binary
 release-tool mac-package dist/mytool tools/mac_package.ini --project-root .
 release-tool mac-package dist/mytool tools/mac_package.ini --project-root . --dry-run
+
+# Sign an app bundle, then the disk image built from it
+release-tool mac-sign target/fman.app --entitlements src/sign/mac/entitlements.plist
+release-tool mac-sign target/fman.dmg
+release-tool mac-sign target/fman.dmg --dry-run
 ```
 
 The build-number bump is also available on its own, for projects that build
