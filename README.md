@@ -238,6 +238,18 @@ Seven projects have been migrated off their bundled `rclone.exe` bat chains —
 see [`docs/ANDROID_MIGRATION.md`](docs/ANDROID_MIGRATION.md) for their configs
 and the behavior changes involved.
 
+## Package a macOS CLI (`mac-package` subcommand)
+
+Sign a raw macOS command-line binary, build its installer package, notarize it,
+and verify the stapled result. Publishing the `.pkg` remains a separate command.
+See [`docs/MAC_PACKAGE_COMMAND.md`](docs/MAC_PACKAGE_COMMAND.md) for setup and
+configuration.
+
+```bash
+release-tool mac-package dist/mytool tools/mac_package.ini --project-root .
+release-tool mac-package dist/mytool tools/mac_package.ini --project-root . --dry-run
+```
+
 The build-number bump is also available on its own, for projects that build
 through another script:
 
