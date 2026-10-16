@@ -27,3 +27,7 @@ class ReleaseCreateError(ReleaseToolError):
 
 class GitHubReleaseError(ReleaseToolError):
     """Raised when a GitHub Release operation fails."""
+
+
+class MacPackageError(ReleaseToolError):
+    """Raised when a macOS package cannot be signed, notarized, or verified."""
