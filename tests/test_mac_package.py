@@ -45,12 +45,12 @@ class TestMacPackager:
             return json.dumps({"status": "Accepted", "id": "submission-1"})
 
         with (
-            patch("release_tool.mac_package.sys.platform", "darwin"),
+            patch("release_tool.mac_tools.sys.platform", "darwin"),
             patch(
                 "release_tool.mac_package.run_command", autospec=True, side_effect=record_stage
             ) as run,
             patch(
-                "release_tool.mac_package.capture_command",
+                "release_tool.mac_tools.capture_command",
                 autospec=True,
                 side_effect=record_notary,
             ) as capture,
@@ -121,9 +121,9 @@ class TestMacPackager:
         binary.touch()
         config = make_config(tmp_path)
         with (
-            patch("release_tool.mac_package.sys.platform", "darwin"),
+            patch("release_tool.mac_tools.sys.platform", "darwin"),
             patch("release_tool.mac_package.run_command", autospec=True) as run,
-            patch("release_tool.mac_package.capture_command", autospec=True) as capture,
+            patch("release_tool.mac_tools.capture_command", autospec=True) as capture,
         ):
             capture.return_value = '{"status":"Accepted"}'
             MacPackager(config).package(binary)
@@ -135,23 +135,31 @@ class TestMacPackager:
         binary.touch()
         config = make_config(tmp_path)
         with (
-            patch("release_tool.mac_package.sys.platform", "darwin"),
+            patch("release_tool.mac_tools.sys.platform", "darwin"),
             patch("release_tool.mac_package.run_command", autospec=True) as run,
-            patch("release_tool.mac_package.capture_command", autospec=True) as capture,
+            patch("release_tool.mac_tools.capture_command", autospec=True) as capture,
         ):
-            capture.return_value = '{"status":"Invalid","id":"bad-id"}'
+            capture.side_effect = ['{"status":"Invalid","id":"bad-id"}', "issue details"]
             with pytest.raises(MacPackageError, match="bad-id"):
                 MacPackager(config).package(binary)
 
+        assert capture.call_args_list[1].args[0] == [
+            "xcrun",
+            "notarytool",
+            "log",
+            "bad-id",
+            "--keychain-profile",
+            "profile",
+        ]
         assert len(run.call_args_list) == 2
 
     def test_invalid_notary_output_is_rejected(self, tmp_path: Path) -> None:
         binary = tmp_path / "tool"
         binary.touch()
         with (
-            patch("release_tool.mac_package.sys.platform", "darwin"),
+            patch("release_tool.mac_tools.sys.platform", "darwin"),
             patch("release_tool.mac_package.run_command", autospec=True),
-            patch("release_tool.mac_package.capture_command", autospec=True, return_value="oops"),
+            patch("release_tool.mac_tools.capture_command", autospec=True, return_value="oops"),
             pytest.raises(MacPackageError, match="notarytool"),
         ):
             MacPackager(make_config(tmp_path)).package(binary)
@@ -160,9 +168,9 @@ class TestMacPackager:
         binary = tmp_path / "tool"
         binary.touch()
         with (
-            patch("release_tool.mac_package.sys.platform", "win32"),
+            patch("release_tool.mac_tools.sys.platform", "win32"),
             patch("release_tool.mac_package.run_command", autospec=True) as run,
-            patch("release_tool.mac_package.capture_command", autospec=True) as capture,
+            patch("release_tool.mac_tools.capture_command", autospec=True) as capture,
             pytest.raises(MacPackageError, match="needs macOS"),
         ):
             MacPackager(make_config(tmp_path)).package(binary)
@@ -173,14 +181,17 @@ class TestMacPackager:
         binary = tmp_path / "tool"
         binary.touch()
         with (
-            patch("release_tool.mac_package.sys.platform", "win32"),
+            patch("release_tool.mac_tools.sys.platform", "win32"),
             patch("release_tool.mac_package.run_command", autospec=True) as run,
-            patch("release_tool.mac_package.capture_command", autospec=True) as capture,
+            patch("release_tool.mac_tools.run_command", autospec=True) as tool_run,
+            patch("release_tool.mac_tools.capture_command", autospec=True) as capture,
         ):
             result = MacPackager(make_config(tmp_path), dry_run=True).package(binary)
         assert result == make_config(tmp_path).output
-        assert len(run.call_args_list) == 6
+        assert len(run.call_args_list) == 5
+        assert len(tool_run.call_args_list) == 1
         assert all(entry.kwargs["dry_run"] for entry in run.call_args_list)
+        assert all(entry.kwargs["dry_run"] for entry in tool_run.call_args_list)
         capture.assert_not_called()
 
     def test_missing_binary_fails(self, tmp_path: Path) -> None:

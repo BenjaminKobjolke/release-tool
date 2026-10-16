@@ -1,47 +1,42 @@
 """Build a signed, notarized, and verified macOS installer package."""
 
-import json
 import logging
 import shutil
-import sys
 import tempfile
 from pathlib import Path
 
-from .bat_runner import capture_command, run_command
+from .bat_runner import run_command
 from .exceptions import MacPackageError
 from .mac_config import MacPackageConfig
+from .mac_tools import (
+    ASSESS,
+    CODESIGN,
+    ENTITLEMENTS,
+    FORCE,
+    OPTIONS_RUNTIME,
+    SIGN,
+    SPCTL,
+    STAPLE,
+    STAPLER,
+    TIMESTAMP,
+    TYPE,
+    XCRUN,
+    notarize,
+    require_macos,
+)
 
 logger = logging.getLogger(__name__)
 
-CODESIGN = "codesign"
 PKGBUILD = "pkgbuild"
-XCRUN = "xcrun"
 PKGUTIL = "pkgutil"
-SPCTL = "spctl"
-FORCE = "--force"
-OPTIONS_RUNTIME = "--options=runtime"
-ENTITLEMENTS = "--entitlements"
-SIGN = "--sign"
-TIMESTAMP = "--timestamp"
 ROOT = "--root"
 INSTALL_LOCATION = "--install-location"
 SCRIPTS = "--scripts"
 IDENTIFIER = "--identifier"
 VERSION = "--version"
-NOTARYTOOL = "notarytool"
-SUBMIT = "submit"
-KEYCHAIN_PROFILE = "--keychain-profile"
-WAIT = "--wait"
-OUTPUT_FORMAT_JSON = "--output-format"
-JSON = "json"
-STAPLER = "stapler"
-STAPLE = "staple"
 CHECK_SIGNATURE = "--check-signature"
-ASSESS = "--assess"
-TYPE = "--type"
 INSTALL = "install"
 VERBOSE = "--verbose"
-NOTARIZATION_HINT = "xcrun notarytool log {id} --keychain-profile {profile}"
 
 
 class MacPackager:
@@ -55,11 +50,7 @@ class MacPackager:
         """Sign, package, notarize, staple, and verify the configured binary."""
         if not binary.is_file():
             raise MacPackageError(f"Binary not found: {binary}")
-        if not self.dry_run and sys.platform != "darwin":
-            raise MacPackageError(
-                "mac-package needs macOS: codesign, pkgbuild and xcrun come with the "
-                f"Xcode Command Line Tools (running on {sys.platform})"
-            )
+        require_macos("mac-package", self.dry_run)
 
         cwd = self.config.output.parent
         if not self.dry_run:
@@ -119,22 +110,7 @@ class MacPackager:
 
     def _notarize(self, cwd: Path) -> None:
         """Submit the installer and require Apple's accepted status."""
-        command = [
-            XCRUN,
-            NOTARYTOOL,
-            SUBMIT,
-            str(self.config.output),
-            KEYCHAIN_PROFILE,
-            self.config.keychain_profile,
-            WAIT,
-            OUTPUT_FORMAT_JSON,
-            JSON,
-        ]
-        logger.info("Submitting package for Apple notarization; this can take several minutes.")
-        if self.dry_run:
-            run_command(command, cwd=cwd, dry_run=True)
-            return
-        check_notarization(capture_command(command, cwd=cwd), self.config.keychain_profile)
+        notarize(self.config.output, self.config.keychain_profile, cwd, self.dry_run)
 
     def _finish_and_verify(self, cwd: Path) -> None:
         """Staple Apple's ticket and check the final installer signature and policy."""
@@ -145,18 +121,3 @@ class MacPackager:
         )
         for command in commands:
             run_command(command, cwd=cwd, dry_run=self.dry_run)
-
-
-def check_notarization(stdout: str, profile: str) -> None:
-    """Reject malformed or non-accepted notarytool JSON responses."""
-    try:
-        result = json.loads(stdout)
-    except json.JSONDecodeError as error:
-        raise MacPackageError(f"Unable to parse notarytool response: {error}") from error
-    if not isinstance(result, dict) or result.get("status") != "Accepted":
-        submission_id = result.get("id", "unknown") if isinstance(result, dict) else "unknown"
-        hint = NOTARIZATION_HINT.format(id=submission_id, profile=profile)
-        raise MacPackageError(
-            f"Apple notarization was not accepted (submission {submission_id}). "
-            f"Inspect the result with: {hint}"
-        )
