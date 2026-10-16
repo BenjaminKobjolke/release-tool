@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from release_tool.cli import main
-from release_tool.cli_mac import parse_mac_package_args
+from release_tool.cli_mac import parse_mac_package_args, parse_mac_sign_args
 
 
 class TestParseMacPackageArgs:
@@ -64,8 +64,62 @@ keychain_profile = profile
 """,
             encoding="utf-8",
         )
-        with patch("release_tool.mac_package.sys.platform", "win32"):
+        with patch("release_tool.mac_tools.sys.platform", "win32"):
             exit_code = main(
                 ["mac-package", str(binary), str(config), "--project-root", str(tmp_path)]
             )
         assert exit_code == 1
+
+
+class TestParseMacSignArgs:
+    def test_defaults_and_flags(self) -> None:
+        args = parse_mac_sign_args(["tool.app"])
+        assert args.target == Path("tool.app")
+        assert args.entitlements is None
+        assert not args.dry_run and not args.verbose
+
+        args = parse_mac_sign_args(
+            ["tool.app", "--entitlements", "entitlements.plist", "--dry-run", "--verbose"]
+        )
+        assert args.entitlements == Path("entitlements.plist")
+        assert args.dry_run and args.verbose
+
+
+class TestMacSignDispatch:
+    def test_main_dispatches_with_resolved_paths(self, tmp_path: Path) -> None:
+        target = tmp_path / "tool.app"
+        target.mkdir()
+        entitlements = tmp_path / "entitlements.plist"
+        entitlements.touch()
+
+        with (
+            patch("release_tool.cli_mac.MacSignConfig.from_signing_file") as load_config,
+            patch("release_tool.cli_mac.MacSigner") as signer,
+        ):
+            assert main(
+                ["mac-sign", str(target), "--entitlements", str(entitlements), "--dry-run"]
+            ) == 0
+
+        load_config.assert_called_once_with()
+        signer.assert_called_once_with(load_config.return_value, dry_run=True)
+        signer.return_value.sign.assert_called_once_with(target.resolve(), entitlements.resolve())
+
+    def test_missing_shared_signing_returns_two(self, tmp_path: Path) -> None:
+        target = tmp_path / "tool.dmg"
+        target.touch()
+        with patch("release_tool.mac_config.MAC_SIGNING_FILE", tmp_path / "missing.ini"):
+            assert main(["mac-sign", str(target), "--dry-run"]) == 2
+
+    def test_non_macos_real_run_returns_one(self, tmp_path: Path) -> None:
+        target = tmp_path / "tool.dmg"
+        target.touch()
+        signing = tmp_path / "mac_signing.ini"
+        signing.write_text(
+            "[MacSigning]\napp_identity = App Identity\nkeychain_profile = profile\n",
+            encoding="utf-8",
+        )
+        with (
+            patch("release_tool.mac_config.MAC_SIGNING_FILE", signing),
+            patch("release_tool.mac_tools.sys.platform", "win32"),
+        ):
+            assert main(["mac-sign", str(target)]) == 1

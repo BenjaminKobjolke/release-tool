@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from release_tool.exceptions import ConfigurationError
-from release_tool.mac_config import DEFAULT_ENTITLEMENTS, MacPackageConfig
+from release_tool.mac_config import DEFAULT_ENTITLEMENTS, MacPackageConfig, MacSignConfig
 
 
 def write_package(root: Path, version: str = "2.3.4") -> Path:
@@ -147,3 +147,33 @@ class TestMacPackageConfig:
 
         with pytest.raises(ConfigurationError, match="scripts"):
             MacPackageConfig.from_ini_file(ini, tmp_path, signing_path=shared)
+
+
+class TestMacSignConfig:
+    def test_loads_shared_signing_without_installer_identity(self, tmp_path: Path) -> None:
+        shared = tmp_path / "shared.ini"
+        shared.write_text(
+            "[MacSigning]\napp_identity = App Identity\nkeychain_profile = profile\n",
+            encoding="utf-8",
+        )
+
+        config = MacSignConfig.from_signing_file(shared)
+
+        assert config.app_identity == "App Identity"
+        assert config.keychain_profile == "profile"
+
+    def test_missing_key_names_shared_signing_file(self, tmp_path: Path) -> None:
+        shared = tmp_path / "shared.ini"
+        shared.write_text("[MacSigning]\napp_identity = App Identity\n", encoding="utf-8")
+
+        with pytest.raises(ConfigurationError) as error:
+            MacSignConfig.from_signing_file(shared)
+
+        assert "keychain_profile" in str(error.value)
+        assert str(shared) in str(error.value)
+
+    def test_missing_shared_file_is_rejected(self, tmp_path: Path) -> None:
+        shared = tmp_path / "missing.ini"
+
+        with pytest.raises(ConfigurationError, match="app_identity.*keychain_profile"):
+            MacSignConfig.from_signing_file(shared)

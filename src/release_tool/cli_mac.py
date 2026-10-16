@@ -1,12 +1,14 @@
-"""CLI entry point for building a macOS installer package."""
+"""CLI entry points for macOS signing and installer packaging."""
 
 import argparse
 import logging
 from pathlib import Path
 
 from .cli_support import guarded, setup_logging
-from .mac_config import MacPackageConfig
+from .mac_config import MacPackageConfig, MacSignConfig
 from .mac_package import MacPackager
+from .mac_sign import MacSigner
+from .mac_tools import AppLogger
 
 
 def parse_mac_package_args(args: list[str]) -> argparse.Namespace:
@@ -39,6 +41,38 @@ def run_mac_package(args: list[str]) -> int:
         config = MacPackageConfig.from_ini_file(parsed.config, project_root)
         binary = parsed.binary if parsed.binary.is_absolute() else project_root / parsed.binary
         MacPackager(config, dry_run=parsed.dry_run).package(binary.resolve())
+        return True
+
+    return guarded(logger, action)
+
+
+def parse_mac_sign_args(args: list[str]) -> argparse.Namespace:
+    """Parse arguments for the `mac-sign` subcommand."""
+    parser = argparse.ArgumentParser(
+        prog="release-tool mac-sign",
+        description="Sign, notarize, and staple a macOS app bundle or disk image",
+    )
+    parser.add_argument("target", type=Path, help=".app bundle or .dmg image to sign in place")
+    parser.add_argument(
+        "--entitlements",
+        type=Path,
+        help="Entitlements plist for an .app bundle (defaults to the bundled plist)",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Log commands without running them")
+    parser.add_argument("--verbose", action="store_true", help="Enable debug logging")
+    return parser.parse_args(args)
+
+
+def run_mac_sign(args: list[str]) -> int:
+    """Execute the `mac-sign` workflow."""
+    parsed = parse_mac_sign_args(args)
+    setup_logging(parsed.verbose)
+    logger = AppLogger(__name__)
+
+    def action() -> bool:
+        config = MacSignConfig.from_signing_file()
+        entitlements = parsed.entitlements.resolve() if parsed.entitlements is not None else None
+        MacSigner(config, dry_run=parsed.dry_run).sign(parsed.target.resolve(), entitlements)
         return True
 
     return guarded(logger, action)

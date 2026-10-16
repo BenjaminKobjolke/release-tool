@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .cli_android import run_android, run_bump_build
 from .cli_ftp_check import run_check_ftp
-from .cli_mac import run_mac_package
+from .cli_mac import run_mac_package, run_mac_sign
 from .cli_support import guarded, setup_logging
 from .cli_sync import run_sync
 from .config import ReleaseConfig
@@ -208,6 +208,8 @@ def main(args: list[str] | None = None) -> int:
         return run_android(argv[1:])
     if argv and argv[0] == "mac-package":
         return run_mac_package(argv[1:])
+    if argv and argv[0] == "mac-sign":
+        return run_mac_sign(argv[1:])
     if argv and argv[0] == "bump-build":
         return run_bump_build(argv[1:])
     if argv and argv[0] == "sync":

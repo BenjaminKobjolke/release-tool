@@ -36,21 +36,12 @@ class MacPackageConfig:
         """Load an app INI and merge its signing values over the shared signing file."""
         app_parser = load_parser(path)
         app_signing = _section(app_parser, SIGNING_SECTION)
-        shared_path = MAC_SIGNING_FILE if signing_path is None else signing_path
-        shared_signing: Mapping[str, str] = {}
-        if shared_path.exists():
-            shared_signing = _section(load_parser(shared_path), SIGNING_SECTION)
-        signing = {**shared_signing, **app_signing}
-        missing_signing = [
-            key
-            for key in ("app_identity", "installer_identity", "keychain_profile")
-            if not signing.get(key, "").strip()
-        ]
-        if missing_signing:
-            raise ConfigurationError(
-                f"Missing MacSigning value(s) {', '.join(missing_signing)} in "
-                f"{path} or shared signing file {shared_path}"
-            )
+        signing = _load_signing(
+            app_signing,
+            ("app_identity", "installer_identity", "keychain_profile"),
+            signing_path,
+            source=str(path),
+        )
 
         package = _section(app_parser, PACKAGE_SECTION)
         identifier = _required(package, "identifier")
@@ -96,6 +87,48 @@ class MacPackageConfig:
             version=version,
             output=output,
         )
+
+
+@dataclass(frozen=True)
+class MacSignConfig:
+    """Shared signing values needed to notarize an app or disk image."""
+
+    app_identity: str
+    keychain_profile: str
+
+    @classmethod
+    def from_signing_file(cls, signing_path: Path | None = None) -> "MacSignConfig":
+        """Load the shared signing values without requiring an installer identity."""
+        signing = _load_signing(
+            {}, ("app_identity", "keychain_profile"), signing_path, source=""
+        )
+        return cls(
+            app_identity=signing["app_identity"],
+            keychain_profile=signing["keychain_profile"],
+        )
+
+
+def _load_signing(
+    app_signing: Mapping[str, str],
+    required: tuple[str, ...],
+    signing_path: Path | None,
+    source: str,
+) -> dict[str, str]:
+    """Merge shared and app signing values, then validate and normalize them."""
+    shared_path = MAC_SIGNING_FILE if signing_path is None else signing_path
+    shared_signing: Mapping[str, str] = {}
+    if shared_path.exists():
+        shared_signing = _section(load_parser(shared_path), SIGNING_SECTION)
+    signing = {key: value.strip() for key, value in {**shared_signing, **app_signing}.items()}
+    missing = [key for key in required if not signing.get(key)]
+    if missing:
+        message = f"Missing MacSigning value(s) {', '.join(missing)}"
+        if source:
+            message += f" in {source} or shared signing file {shared_path}"
+        else:
+            message += f" in shared signing file {shared_path}"
+        raise ConfigurationError(message)
+    return signing
 
 
 def _section(parser: configparser.ConfigParser, name: str) -> Mapping[str, str]:
