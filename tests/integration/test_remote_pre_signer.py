@@ -34,6 +34,7 @@ def test_remote_signer_streams_progress_and_verifies_signed_file(
 ) -> None:
     body = (
         'if not "%SIGNER_NO_PAUSE%"=="1" exit /b 1\n'
+        'if not "%PYTHONUNBUFFERED%"=="1" exit /b 1\n'
         "echo Upload 50%%\n"
         "echo Download 100%%\n"
         'echo signed>"%~1"\n'

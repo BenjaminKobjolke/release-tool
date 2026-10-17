@@ -14,6 +14,7 @@ logger = AppLogger(__name__)
 
 SIGN_BAT = "sign.bat"
 NO_PAUSE_ENV = "SIGNER_NO_PAUSE"
+UNBUFFERED_ENV = "PYTHONUNBUFFERED"
 EXIT_CODE_MEANINGS = {
     1: "check the signer's config.json; mode must be client",
     2: "the signing server reported that signing failed",
@@ -39,6 +40,9 @@ class RemotePreSigner:
         command = bat_command(str(signer_bat)) + [str(absolute_file)]
         environment = os.environ.copy()
         environment[NO_PAUSE_ENV] = "1"
+        # The signer is Python; writing to a pipe it block-buffers, so progress would
+        # only arrive when it exits.
+        environment[UNBUFFERED_ENV] = "1"
 
         try:
             process = subprocess.Popen(
