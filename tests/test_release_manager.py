@@ -1,5 +1,6 @@
 """Tests for release manager module."""
 
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -12,7 +13,9 @@ from release_tool.config import (
     ReleaseConfig,
     SubfolderNaming,
 )
+from release_tool.pre_signer import PreSignConfig, PreSignMethod, PreSigner
 from release_tool.release_manager import ReleaseManager
+from release_tool.remote_pre_signer import RemotePreSigner
 
 
 class TestReleaseManager:
@@ -44,6 +47,76 @@ class TestReleaseManager:
         result = manager.release(nonexistent)
 
         assert result is False
+
+    def test_manager_selects_configured_pre_signer(self, release_config: ReleaseConfig) -> None:
+        network_config = replace(
+            release_config,
+            pre_sign=PreSignConfig(
+                enabled=True,
+                expected_signer="Example GmbH",
+                network_path="\\\\server\\unsigned",
+                network_path_signed="\\\\server\\signed",
+            ),
+        )
+        remote_config = replace(
+            release_config,
+            pre_sign=PreSignConfig(
+                enabled=True,
+                expected_signer="Example GmbH",
+                method=PreSignMethod.REMOTE,
+                signer_dir="D:\\Tools\\signer",
+            ),
+        )
+
+        assert isinstance(ReleaseManager(network_config).pre_signer, PreSigner)
+        assert isinstance(ReleaseManager(remote_config).pre_signer, RemotePreSigner)
+
+    def test_remote_dry_run_logs_command_without_running_signer(
+        self, release_config: ReleaseConfig, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        test_file = tmp_path / "release.exe"
+        test_file.write_bytes(b"content")
+        config = replace(
+            release_config,
+            pre_sign=PreSignConfig(
+                enabled=True,
+                expected_signer="Example GmbH",
+                method=PreSignMethod.REMOTE,
+                signer_dir=str(tmp_path / "Signer Directory"),
+            ),
+        )
+        manager = ReleaseManager(config, dry_run=True)
+        caplog.set_level("INFO")
+
+        with patch("release_tool.remote_pre_signer.subprocess.Popen") as popen:
+            assert manager.release(test_file) is True
+
+        assert "sign.bat" in caplog.text
+        assert "SIGNER_NO_PAUSE=1" in caplog.text
+        assert "Expected signer: Example GmbH" in caplog.text
+        popen.assert_not_called()
+
+    def test_network_dry_run_keeps_network_share_details(
+        self, release_config: ReleaseConfig, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        test_file = tmp_path / "release.exe"
+        test_file.write_bytes(b"content")
+        config = replace(
+            release_config,
+            pre_sign=PreSignConfig(
+                enabled=True,
+                expected_signer="Example GmbH",
+                network_path="\\\\server\\unsigned",
+                network_path_signed="\\\\server\\signed",
+            ),
+        )
+        manager = ReleaseManager(config, dry_run=True)
+        caplog.set_level("INFO")
+
+        assert manager.release(test_file) is True
+
+        assert "Would copy release.exe to \\\\server\\unsigned" in caplog.text
+        assert "Would wait for signed file at: \\\\server\\signed" in caplog.text
 
     def test_dry_run_release(self, release_config: ReleaseConfig, tmp_path: Path) -> None:
         """Test dry run doesn't connect to FTP."""

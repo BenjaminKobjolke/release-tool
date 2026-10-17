@@ -2,11 +2,12 @@
 
 import logging
 import shutil
-import subprocess
 import time
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
+from .authenticode import read_signer_name
 from .exceptions import PreSignError
 
 logger = logging.getLogger(__name__)
@@ -17,14 +18,23 @@ _COPY_RETRIES = 5
 _COPY_RETRY_DELAY = 2
 
 
+class PreSignMethod(Enum):
+    """Available pre-signing workflows."""
+
+    NETWORK = "network"
+    REMOTE = "remote"
+
+
 @dataclass
 class PreSignConfig:
     """Configuration for pre-signing process."""
 
     enabled: bool
-    network_path: str
-    network_path_signed: str
     expected_signer: str
+    method: PreSignMethod = PreSignMethod.NETWORK
+    network_path: str = ""
+    network_path_signed: str = ""
+    signer_dir: str = ""
     poll_interval: int = 10
     timeout: int = 300
 
@@ -49,6 +59,19 @@ class PreSigner:
         logger.info(f"Pre-signing complete: {file_path.name}")
         return file_path
 
+    def log_dry_run(self, file_path: Path) -> None:
+        """Describe the network-share signing steps without copying files."""
+        logger.info(f"[DRY RUN] Would copy {file_path.name} to {self.config.network_path}")
+        logger.info(
+            f"[DRY RUN] Would wait for signed file at: {self.config.network_path_signed}"
+        )
+        logger.info(f"[DRY RUN] Expected signer: {self.config.expected_signer}")
+        logger.info(
+            f"[DRY RUN] Poll interval: {self.config.poll_interval}s, "
+            f"timeout: {self.config.timeout}s"
+        )
+        logger.info("[DRY RUN] Would move signed file back to source location")
+
     def _copy_to_network(self, file_path: Path) -> Path:
         """Copy file to network path, return destination path."""
         network_path = Path(self.config.network_path)
@@ -66,36 +89,6 @@ class PreSigner:
 
         logger.info(f"Copied to network path: {dest_path}")
         return dest_path
-
-    def _get_signature(self, file_path: Path) -> str | None:
-        """Get digital signature signer name using PowerShell."""
-        cmd = [
-            "powershell",
-            "-Command",
-            f"(Get-AuthenticodeSignature '{file_path}').SignerCertificate.Subject",
-        ]
-
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        except subprocess.TimeoutExpired:
-            logger.warning("PowerShell signature check timed out")
-            return None
-        except OSError as e:
-            logger.warning(f"Failed to run PowerShell: {e}")
-            return None
-
-        if result.returncode != 0 or not result.stdout.strip():
-            return None
-
-        # Parse CN= from subject string
-        # Example: "CN=XIDA GmbH, O=XIDA GmbH, L=City, S=State, C=DE"
-        subject = result.stdout.strip()
-        for part in subject.split(","):
-            part = part.strip()
-            if part.startswith("CN="):
-                return part[3:].strip()
-
-        return None
 
     def _wait_for_signature(self, filename: str) -> Path:
         """Poll signed directory until file appears with correct signature."""
@@ -126,7 +119,7 @@ class PreSigner:
                 time.sleep(self.config.poll_interval)
                 continue
 
-            signer = self._get_signature(signed_file)
+            signer = read_signer_name(signed_file)
             logger.debug(f"Poll #{poll_count}: signer = {signer}")
 
             if signer and signer == self.config.expected_signer:

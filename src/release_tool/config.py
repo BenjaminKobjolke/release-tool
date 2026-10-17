@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 
 from .exceptions import ConfigurationError
-from .pre_signer import PreSignConfig
+from .pre_signer import PreSignConfig, PreSignMethod
 
 PROFILES_FILE = Path(__file__).resolve().parents[2] / "ftp_profiles.ini"
 PROFILE_KEY = "profile"
@@ -185,34 +185,7 @@ class ReleaseConfig:
             subfolder_naming=naming,
         )
 
-        # Parse PreSigning section (optional)
-        pre_sign_config = None
-        if "PreSigning" in parser:
-            pre_sign_section = parser["PreSigning"]
-            enabled = pre_sign_section.getboolean("enabled", False)
-            if enabled:
-                network_path = pre_sign_section.get("network_path", "")
-                if not network_path:
-                    raise ConfigurationError("PreSigning network_path is required when enabled")
-                network_path_signed = pre_sign_section.get("network_path_signed", "")
-                if not network_path_signed:
-                    raise ConfigurationError(
-                        "PreSigning network_path_signed is required when enabled"
-                    )
-                expected_signer = pre_sign_section.get("expected_signer", "")
-                if not expected_signer:
-                    raise ConfigurationError("PreSigning expected_signer is required when enabled")
-                try:
-                    pre_sign_config = PreSignConfig(
-                        enabled=True,
-                        network_path=network_path,
-                        network_path_signed=network_path_signed,
-                        expected_signer=expected_signer,
-                        poll_interval=pre_sign_section.getint("poll_interval", 10),
-                        timeout=pre_sign_section.getint("timeout", 300),
-                    )
-                except ValueError as e:
-                    raise ConfigurationError(f"Invalid PreSigning configuration: {e}") from e
+        pre_sign_config = _parse_pre_sign_config(parser)
 
         # Parse ReleaseNotes section (optional)
         release_notes_config = None
@@ -234,3 +207,56 @@ class ReleaseConfig:
             pre_sign=pre_sign_config,
             release_notes=release_notes_config,
         )
+
+
+def _parse_pre_sign_config(parser: configparser.ConfigParser) -> PreSignConfig | None:
+    """Parse the optional [PreSigning] section for its selected method."""
+    if "PreSigning" not in parser:
+        return None
+
+    section = parser["PreSigning"]
+    if not section.getboolean("enabled", False):
+        return None
+
+    method_value = section.get("method", PreSignMethod.NETWORK.value).lower()
+    try:
+        method = PreSignMethod(method_value)
+    except ValueError as e:
+        raise ConfigurationError(
+            f"Invalid PreSigning method: {method_value}. Must be 'network' or 'remote'"
+        ) from e
+
+    expected_signer = section.get("expected_signer", "")
+    values: dict[str, str] = {"expected_signer": expected_signer}
+    if method is PreSignMethod.NETWORK:
+        values["network_path"] = section.get("network_path", "")
+        values["network_path_signed"] = section.get("network_path_signed", "")
+        if not values["network_path"]:
+            raise ConfigurationError("PreSigning network_path is required when enabled")
+        if not values["network_path_signed"]:
+            raise ConfigurationError("PreSigning network_path_signed is required when enabled")
+        if not expected_signer:
+            raise ConfigurationError("PreSigning expected_signer is required when enabled")
+    else:
+        values["signer_dir"] = section.get("signer_dir", "")
+        if not values["signer_dir"]:
+            raise ConfigurationError("PreSigning signer_dir is required when enabled")
+        if not expected_signer:
+            raise ConfigurationError("PreSigning expected_signer is required when enabled")
+
+    try:
+        if method is PreSignMethod.NETWORK:
+            poll_interval = section.getint("poll_interval", 10)
+            timeout = section.getint("timeout", 300)
+        else:
+            poll_interval = 10
+            timeout = 300
+        return PreSignConfig(
+            enabled=True,
+            method=method,
+            poll_interval=poll_interval,
+            timeout=timeout,
+            **values,
+        )
+    except ValueError as e:
+        raise ConfigurationError(f"Invalid PreSigning configuration: {e}") from e

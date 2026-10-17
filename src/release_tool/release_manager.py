@@ -7,7 +7,8 @@ from .cli_support import confirm
 from .config import OldFilePolicy, ReleaseConfig
 from .ftp_client import FTPClient
 from .old_file_handler import create_handler
-from .pre_signer import PreSigner
+from .pre_signer import PreSignConfig, PreSignMethod, PreSigner
+from .remote_pre_signer import RemotePreSigner
 from .release_notes_uploader import ReleaseNotesUploader
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ class ReleaseManager:
         self.version = version
         self.client = FTPClient(config.ftp)
         self.old_file_handler = create_handler(config.old_file)
-        self.pre_signer = PreSigner(config.pre_sign) if config.pre_sign else None
+        self.pre_signer = _create_pre_signer(config.pre_sign)
 
     def release(self, file_path: Path, remote_filename: str | None = None) -> bool:
         """Execute the release workflow with an optional one-release remote name."""
@@ -53,13 +54,8 @@ class ReleaseManager:
         pre_sign = self.config.pre_sign
         if pre_sign:
             logger.info("[DRY RUN] Pre-signing enabled")
-            logger.info(f"[DRY RUN] Would copy {file_path.name} to {pre_sign.network_path}")
-            logger.info(f"[DRY RUN] Would wait for signed file at: {pre_sign.network_path_signed}")
-            logger.info(f"[DRY RUN] Expected signer: {pre_sign.expected_signer}")
-            logger.info(
-                f"[DRY RUN] Poll interval: {pre_sign.poll_interval}s, timeout: {pre_sign.timeout}s"
-            )
-            logger.info("[DRY RUN] Would move signed file back to source location")
+            if self.pre_signer:
+                self.pre_signer.log_dry_run(file_path)
 
         logger.info("[DRY RUN] Would connect to FTP server")
         logger.info(f"[DRY RUN] Host: {self.config.ftp.host}:{self.config.ftp.port}")
@@ -135,3 +131,14 @@ class ReleaseManager:
                 uploader.upload()
 
         return True
+
+
+def _create_pre_signer(
+    config: PreSignConfig | None,
+) -> PreSigner | RemotePreSigner | None:
+    """Build the signer selected by the release configuration."""
+    if config is None:
+        return None
+    if config.method is PreSignMethod.REMOTE:
+        return RemotePreSigner(config)
+    return PreSigner(config)
