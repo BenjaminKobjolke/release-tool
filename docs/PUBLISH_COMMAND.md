@@ -27,8 +27,8 @@ release-tool <file> <config> [--previous-version X] [--dry-run] [--verbose]
 1. Verify the local `file` exists (else fail).
 2. If `--previous-version` is set and the policy is `rename`, check whether that
    backup folder already exists remotely and prompt before overwriting.
-3. **Pre-sign** (optional) — copy the file to a network signing folder, wait for
-   the signed copy, verify the signer, move it back. See `RETRIEVE_EXECUTABLE_SIGNER.md`.
+3. **Pre-sign** (optional) — use either the network signing folder or a local SafeNet signer
+   client checkout, then verify the signer. See `RETRIEVE_EXECUTABLE_SIGNER.md`.
 4. Connect via FTP. If a file with the same name already exists remotely, apply the
    **old-file policy** (delete, or move to a backup subfolder).
 5. Upload the artifact.
@@ -79,6 +79,11 @@ subfolder_naming = version ; version | timestamp  (default timestamp)
 
 [PreSigning]              ; optional; whole section may be omitted
 enabled = false
+; method = network (default) or remote
+method = network
+; Required for remote; path to a SafeNet signer checkout in client mode
+; signer_dir = D:\Tools\SafeNet Signer
+; Network-only settings below
 network_path = \\signer\in
 network_path_signed = \\signer\out
 expected_signer = Example GmbH
@@ -89,6 +94,14 @@ timeout = 300             ; seconds (default 300)
 path = release_notes             ; local folder
 remote_path = /public/release_notes
 ```
+
+`method` defaults to `network` to keep existing files working. For remote signing, set
+`method = remote` and provide `signer_dir`; the signer's own `config.json` must use client mode
+and stores its FTP credentials and timeout. The release tool runs `sign.bat` with
+`SIGNER_NO_PAUSE=1`, streams upload/wait/download progress, then verifies `expected_signer`.
+The network paths and polling settings apply only to `method = network`. Remote exit codes are:
+`1` (check client mode/configuration), `2` (server signing failure), `3` (signer timeout), and
+`4` (connection or transfer error).
 
 Keep credentials out of source control — the project keeps this INI gitignored
 (commit a `*_example.ini` template instead).

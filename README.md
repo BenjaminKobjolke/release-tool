@@ -56,6 +56,8 @@ subfolder_naming = timestamp
 [PreSigning]
 ; Enable pre-signing workflow (default: false)
 enabled = true
+; Method: "network" (default) or "remote"
+method = network
 ; Network path where signing service monitors for files
 network_path = \\SERVER\Signing
 ; Network path where signed files are placed by the signing service
@@ -66,6 +68,8 @@ expected_signer = Your Company Name
 poll_interval = 10
 ; Timeout in seconds (default: 300 = 5 minutes)
 timeout = 300
+; For method = remote, use signer_dir instead of the network-only settings above
+; signer_dir = D:/Tools/SafeNet Signer
 
 [ReleaseNotes]
 ; Local path to release notes folder containing version subfolders (e.g., 1.0.0/, 1.0.1/)
@@ -88,7 +92,9 @@ guide](docs/FTP_PROFILES.md#check-all-profiles).
 
 ### Pre-Signing Workflow
 
-When `[PreSigning]` is enabled, the tool performs these steps before FTP upload:
+When `[PreSigning]` is enabled, the tool performs the selected signing workflow before FTP upload.
+
+#### Network method
 
 1. Copies the executable to `network_path`
 2. Waits for the signed file to appear in `network_path_signed`
@@ -98,6 +104,31 @@ When `[PreSigning]` is enabled, the tool performs these steps before FTP upload:
 6. Proceeds with FTP upload
 
 This integrates with code signing services that monitor a network folder for files to sign and output signed files to a separate directory.
+
+#### Remote method
+
+Set `method = remote` and `signer_dir` to a local checkout of the SafeNet signer. Its
+`config.json` must select client mode and contain the FTP host, credentials, polling interval,
+and timeout. Those connection settings stay in the signer's configuration; `network_path`,
+`network_path_signed`, `poll_interval`, and `timeout` are only used by the network method.
+
+```ini
+[PreSigning]
+enabled = true
+method = remote
+signer_dir = D:\Tools\SafeNet Signer
+expected_signer = Your Company Name
+```
+
+The release tool runs `sign.bat` from that checkout with `SIGNER_NO_PAUSE=1`. It streams the
+signer's upload, waiting, and download progress to the console. When the signer exits
+successfully, the tool verifies that the returned file's certificate matches `expected_signer`.
+The release stops with a clear error for a non-zero exit:
+
+- `1`: check the signer's `config.json`; `mode` must be `client`.
+- `2`: the signing server reported that signing failed.
+- `3`: the signer timed out waiting for the signed file; check its configured timeout.
+- `4`: check the connection or file transfer to the signing server.
 
 ### Release Notes Upload
 
