@@ -54,6 +54,8 @@ Each section can provide `[PreSigning]` keys such as `enabled`, `method`,
 error lists the available profile names. Configurations without `profile` do
 not read the signing profiles file.
 
+To test a signing profile without a release, see [Test signing](TEST_SIGNING.md).
+
 ## Check all profiles
 
 Run this from a shell with the release tool installed:

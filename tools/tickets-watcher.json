@@ -18,6 +18,7 @@
     "check_ftp.bat",
     "run_integration_tests.bat",
     "run_tests.bat",
+    "test_signing.bat",
     "tests.bat"
   ],
   "analysis_commands_seen": {

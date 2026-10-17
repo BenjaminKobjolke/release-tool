@@ -130,6 +130,10 @@ The release stops with a clear error for a non-zero exit:
 - `3`: the signer timed out waiting for the signed file; check its configured timeout.
 - `4`: check the connection or file transfer to the signing server.
 
+To test a signing setup without a release, run `tools\test_signing.bat "<profile name>"`. It
+signs a copy of `examples\dummy.exe` with a named signing profile; see
+[Test signing](docs/TEST_SIGNING.md).
+
 ### Release Notes Upload
 
 When `[ReleaseNotes]` is configured, the tool automatically uploads new release notes folders after the main file upload:
