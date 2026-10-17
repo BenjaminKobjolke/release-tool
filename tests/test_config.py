@@ -11,6 +11,7 @@ from release_tool.config import (
     OldFilePolicy,
     ReleaseConfig,
     SubfolderNaming,
+    _parse_pre_sign_config,
     build_ftp_config,
     parse_ftp_config,
 )
@@ -140,15 +141,22 @@ public_url_base = https://example.com/apps
         path = tmp_path / "missing.ini"
         parser = self.parser("[FTP]\nprofile = apps\n")
 
-        with pytest.raises(ConfigurationError, match=str(path).replace("\\", "\\\\")):
+        with pytest.raises(ConfigurationError) as exc_info:
             parse_ftp_config(parser, path)
+
+        assert str(exc_info.value) == f"FTP profile 'apps' requested but {path} does not exist"
 
     def test_unknown_profile_lists_available_names(self, tmp_path: Path) -> None:
         profiles = self.write_profiles(tmp_path / "ftp_profiles.ini")
         parser = self.parser("[FTP]\nprofile = typo\n")
 
-        with pytest.raises(ConfigurationError, match="kobjolke.com - apps"):
+        with pytest.raises(ConfigurationError) as exc_info:
             parse_ftp_config(parser, profiles)
+
+        assert str(exc_info.value) == (
+            f"FTP profile 'typo' not found in {profiles}. "
+            "Available profiles: kobjolke.com - apps"
+        )
 
     def test_no_profile_does_not_read_profiles_file(self, tmp_path: Path) -> None:
         parser = self.parser("[FTP]\nhost = direct.example\nusername = deploy\n")
@@ -188,6 +196,87 @@ public_url_base = https://example.com/apps
         config = SyncConfig.from_ini_file(config_path)
 
         assert config.ftp.host == "ftp.example.com"
+
+
+class TestSigningProfiles:
+    """Tests for reusable named pre-signing configuration."""
+
+    @staticmethod
+    def parser(content: str) -> configparser.ConfigParser:
+        parser = configparser.ConfigParser()
+        parser.read_string(content)
+        return parser
+
+    @staticmethod
+    def write_profiles(path: Path, content: str = "") -> Path:
+        path.write_text(
+            content
+            or """[xida remote]
+enabled = true
+method = remote
+signer_dir = D:\\Tools\\SafeNet Signer
+expected_signer = Example GmbH
+""",
+            encoding="utf-8",
+        )
+        return path
+
+    def test_loads_named_profile(self, tmp_path: Path) -> None:
+        profiles = self.write_profiles(tmp_path / "signing_profiles.ini")
+        parser = self.parser("[PreSigning]\nprofile = xida remote\n")
+
+        config = _parse_pre_sign_config(parser, profiles)
+
+        assert config is not None
+        assert config.enabled is True
+        assert config.method is PreSignMethod.REMOTE
+        assert config.signer_dir == "D:\\Tools\\SafeNet Signer"
+        assert config.expected_signer == "Example GmbH"
+
+    def test_project_value_overrides_profile(self, tmp_path: Path) -> None:
+        profiles = self.write_profiles(tmp_path / "signing_profiles.ini")
+        parser = self.parser(
+            "[PreSigning]\nprofile = xida remote\nexpected_signer = Project GmbH\n"
+        )
+
+        config = _parse_pre_sign_config(parser, profiles)
+
+        assert config is not None
+        assert config.expected_signer == "Project GmbH"
+
+    def test_unknown_profile_lists_available_names(self, tmp_path: Path) -> None:
+        profiles = self.write_profiles(tmp_path / "signing_profiles.ini")
+        parser = self.parser("[PreSigning]\nprofile = typo\n")
+
+        with pytest.raises(ConfigurationError) as exc_info:
+            _parse_pre_sign_config(parser, profiles)
+
+        assert str(exc_info.value) == (
+            f"Signing profile 'typo' not found in {profiles}. "
+            "Available profiles: xida remote"
+        )
+
+    def test_missing_profiles_file_names_expected_path(self, tmp_path: Path) -> None:
+        path = tmp_path / "missing.ini"
+        parser = self.parser("[PreSigning]\nprofile = apps\n")
+
+        with pytest.raises(ConfigurationError) as exc_info:
+            _parse_pre_sign_config(parser, path)
+
+        assert str(exc_info.value) == (
+            f"Signing profile 'apps' requested but {path} does not exist"
+        )
+
+    def test_no_profile_does_not_read_profiles_file(self, tmp_path: Path) -> None:
+        parser = self.parser(
+            "[PreSigning]\nenabled = true\nmethod = remote\n"
+            "signer_dir = D:\\Tools\\Signer\nexpected_signer = Example GmbH\n"
+        )
+
+        config = _parse_pre_sign_config(parser, tmp_path / "missing.ini")
+
+        assert config is not None
+        assert config.signer_dir == "D:\\Tools\\Signer"
 
 
 class TestReleaseConfig:

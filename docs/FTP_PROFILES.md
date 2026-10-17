@@ -32,6 +32,28 @@ is missing or when its section is unknown; the latter error lists the available
 profile names. Configurations without `profile` keep working without reading the
 profiles file.
 
+## Named signing profiles
+
+Shared pre-signing settings can live in a separate private
+`signing_profiles.ini` file at the release-tool checkout root. Copy
+`examples/signing_profiles.ini` there and keep the private copy out of version
+control. Signing settings use a separate file because `check-ftp` treats every
+section in `ftp_profiles.ini` as an FTP connection.
+
+Select a signing profile in a project's release configuration:
+
+```ini
+[PreSigning]
+profile = xida remote
+```
+
+Each section can provide `[PreSigning]` keys such as `enabled`, `method`,
+`signer_dir`, and `expected_signer`. Keys also written in the project's own
+`[PreSigning]` section override the profile. A named profile fails fast if
+`signing_profiles.ini` is missing or the name is unknown; the unknown-name
+error lists the available profile names. Configurations without `profile` do
+not read the signing profiles file.
+
 ## Check all profiles
 
 Run this from a shell with the release tool installed:

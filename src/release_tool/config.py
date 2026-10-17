@@ -9,6 +9,7 @@ from .exceptions import ConfigurationError
 from .pre_signer import PreSignConfig, PreSignMethod
 
 PROFILES_FILE = Path(__file__).resolve().parents[2] / "ftp_profiles.ini"
+SIGNING_PROFILES_FILE = Path(__file__).resolve().parents[2] / "signing_profiles.ini"
 PROFILE_KEY = "profile"
 
 
@@ -71,16 +72,18 @@ def load_parser(path: Path) -> configparser.ConfigParser:
     return parser
 
 
-def _load_ftp_profile(name: str, path: Path) -> dict[str, str]:
-    """Load one named profile from the private profiles file."""
+def _load_profile(kind: str, name: str, path: Path) -> dict[str, str]:
+    """Load one named profile from a private profiles file."""
     if not path.exists():
-        raise ConfigurationError(f"FTP profile '{name}' requested but {path} does not exist")
+        raise ConfigurationError(
+            f"{kind} profile '{name}' requested but {path} does not exist"
+        )
 
     parser = load_parser(path)
     if name not in parser:
         available = ", ".join(parser.sections()) or "(none)"
         raise ConfigurationError(
-            f"FTP profile '{name}' not found in {path}. Available profiles: {available}"
+            f"{kind} profile '{name}' not found in {path}. Available profiles: {available}"
         )
     return dict(parser[name])
 
@@ -100,7 +103,7 @@ def parse_ftp_config(
     if PROFILE_KEY in values:
         name = values.pop(PROFILE_KEY).strip()
         path = PROFILES_FILE if profiles_path is None else profiles_path
-        values = {**_load_ftp_profile(name, path), **values}
+        values = {**_load_profile("FTP", name, path), **values}
 
     return build_ftp_config(values)
 
@@ -209,12 +212,20 @@ class ReleaseConfig:
         )
 
 
-def _parse_pre_sign_config(parser: configparser.ConfigParser) -> PreSignConfig | None:
+def _parse_pre_sign_config(
+    parser: configparser.ConfigParser, profiles_path: Path | None = None
+) -> PreSignConfig | None:
     """Parse the optional [PreSigning] section for its selected method."""
     if "PreSigning" not in parser:
         return None
 
     section = parser["PreSigning"]
+    if PROFILE_KEY in section:
+        name = section.pop(PROFILE_KEY).strip()
+        path = SIGNING_PROFILES_FILE if profiles_path is None else profiles_path
+        for key, value in _load_profile("Signing", name, path).items():
+            section.setdefault(key, value)
+
     if not section.getboolean("enabled", False):
         return None
 
