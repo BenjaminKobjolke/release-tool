@@ -166,6 +166,9 @@ release-tool create --keep-version-name
 
 # Preview the resolved label and every command without executing anything
 release-tool create --dry-run
+
+# Unattended: answer every publish/commit/GitHub prompt with yes
+release-tool create --yes
 ```
 
 The Codex notes step runs with stdin closed so it cannot wait on an inherited

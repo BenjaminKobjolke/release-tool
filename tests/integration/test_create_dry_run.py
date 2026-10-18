@@ -53,6 +53,15 @@ def test_create_dry_run_resolves(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert exit_code == 0
 
 
+def test_create_dry_run_with_yes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _make_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(["create", "release_create.ini", "--dry-run", "--yes"])
+
+    assert exit_code == 0
+
+
 def test_create_missing_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
 

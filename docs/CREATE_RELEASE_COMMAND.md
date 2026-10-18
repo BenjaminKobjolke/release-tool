@@ -33,6 +33,9 @@ release-tool create --keep-version-name
 # Preview the resolved label and every command without executing anything
 release-tool create --dry-run
 
+# Unattended: answer every publish/commit/GitHub prompt with yes
+release-tool create --yes
+
 # Debug logging
 release-tool create --verbose
 ```
@@ -44,6 +47,7 @@ release-tool create --verbose
 | `--internal` | Internal test build: skip release notes, commit/tag as `INTERNAL`. |
 | `--keep-version-name` | Skip the opt-in version-name bump for this run. |
 | `--dry-run` | Print the resolved label and the exact commands without running the mutating ones. |
+| `--yes`, `-y` | Answer every y/N prompt with yes: publishes to every channel, commits, tags, pushes and creates the GitHub Release without asking. Each auto-answer is logged. Combines with `--dry-run`. |
 | `--verbose` | Enable debug logging. |
 
 ## What it does
@@ -101,6 +105,9 @@ release-tool create --verbose
    step 8 declined → skipped. See
    [`docs/GITHUB_RELEASE_COMMAND.md`](GITHUB_RELEASE_COMMAND.md) for the
    underlying `github-release` subcommand.
+
+With `--yes` (or `-y`), these publish, commit/tag/push, and GitHub Release prompts are
+answered automatically and each answer is logged. Without it, the prompts remain interactive.
 
 ## Versioning modes
 

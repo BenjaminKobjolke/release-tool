@@ -31,11 +31,13 @@ class ReleaseCreator:
         project_root: Path,
         dry_run: bool = False,
         version_file: VersionFile | None = None,
+        assume_yes: bool = False,
     ) -> None:
         self.config = config
         self.root = project_root
         self.dry_run = dry_run
         self.version_file = version_file
+        self.assume_yes = assume_yes
 
     def create(self, internal: bool = False, keep_version_name: bool = False) -> bool:
         """Run the full release. Returns True on success."""
@@ -85,6 +87,13 @@ class ReleaseCreator:
 
     def _run_bat(self, bat_path: str) -> None:
         run_command(bat_command(bat_path), self.root, self.dry_run)
+
+    def _confirm(self, prompt: str) -> bool:
+        """Ask ``prompt``, or answer yes without reading stdin under --yes."""
+        if self.assume_yes:
+            logger.info(f"Auto-confirmed: {prompt} (--yes)")
+            return True
+        return confirm(prompt)
 
     def _compute_labels(self, bump_name: bool = True) -> ReleaseLabels:
         """Derive the previous (online) and shipping labels from version/build."""
@@ -218,7 +227,7 @@ class ReleaseCreator:
                 self._run_bat(channel.bat)
                 continue
 
-            if not confirm(prompt):
+            if not self._confirm(prompt):
                 logger.info(f"Publish to {channel.name} declined by user.")
                 continue
             self._run_bat(channel.bat)
@@ -229,7 +238,7 @@ class ReleaseCreator:
         prompt = f"Commit, tag and push {label}? [y/N]"
         if self.dry_run:
             logger.info(f"[DRY RUN] Would prompt: {prompt}")
-        elif not confirm(prompt):
+        elif not self._confirm(prompt):
             logger.info("Commit/tag/push declined by user.")
             return False
 
@@ -259,7 +268,7 @@ class ReleaseCreator:
         prompt = f"Create GitHub Release {tag}? [y/N]"
         if self.dry_run:
             logger.info(f"[DRY RUN] Would prompt: {prompt}")
-        elif not confirm(prompt):
+        elif not self._confirm(prompt):
             logger.info("GitHub Release declined by user.")
             return
 

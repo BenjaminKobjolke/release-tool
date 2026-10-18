@@ -102,6 +102,15 @@ class TestParseCreateArgs:
         assert parse_create_args(["cfg.ini"]).keep_version_name is False
         assert parse_create_args(["cfg.ini", "--keep-version-name"]).keep_version_name is True
 
+    def test_yes_flag(self) -> None:
+        assert parse_create_args(["cfg.ini"]).yes is False
+        assert parse_create_args(["cfg.ini", "--yes"]).yes is True
+        assert parse_create_args(["cfg.ini", "-y"]).yes is True
+
+        args = parse_create_args(["cfg.ini", "--dry-run", "--yes"])
+        assert args.dry_run is True
+        assert args.yes is True
+
 
 class TestRun:
     """Tests for run function."""

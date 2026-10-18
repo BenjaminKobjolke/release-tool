@@ -114,6 +114,13 @@ def parse_create_args(args: list[str]) -> argparse.Namespace:
         help="Preview the resolved label and commands without executing",
     )
     parser.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="Answer every prompt with yes: publishes, commits, tags and pushes "
+        "(and creates the GitHub Release) without asking",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Enable debug logging",
@@ -138,6 +145,7 @@ def run_create(args: list[str]) -> int:
             project_root=project_root,
             dry_run=parsed.dry_run,
             version_file=version_file,
+            assume_yes=parsed.yes,
         )
         return creator.create(internal=parsed.internal, keep_version_name=parsed.keep_version_name)
 
