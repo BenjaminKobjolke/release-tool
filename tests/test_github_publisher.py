@@ -92,6 +92,17 @@ class TestPublish:
         with pytest.raises(GitHubReleaseError, match="Asset not found"):
             publisher.publish("v1.0.0", [tmp_path / "missing.exe"])
 
+    @patch("release_tool.github_publisher.subprocess.run")
+    @patch("release_tool.github_publisher.shutil.which", return_value="/usr/bin/gh")
+    def test_dry_run_tolerates_missing_asset(
+        self, mock_which: MagicMock, mock_run: MagicMock, tmp_path: Path
+    ) -> None:
+        publisher = GitHubPublisher(GitHubReleaseConfig(enabled=True))
+
+        publisher.publish("v1.0.0", [tmp_path / "missing.exe"], dry_run=True)
+
+        mock_run.assert_not_called()
+
     @patch("release_tool.github_publisher.subprocess.run", return_value=ok_result())
     @patch("release_tool.github_publisher.shutil.which", return_value="/usr/bin/gh")
     def test_success_runs_create(

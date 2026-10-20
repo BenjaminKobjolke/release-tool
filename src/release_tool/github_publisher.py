@@ -88,8 +88,13 @@ class GitHubPublisher:
             )
 
         for asset in assets:
-            if not asset.exists():
-                raise GitHubReleaseError(f"Asset not found: {asset}")
+            if asset.exists():
+                continue
+            # A dry run never builds, so a not-yet-built asset is expected there.
+            if dry_run:
+                logger.warning(f"[DRY RUN] Asset not built yet: {asset}")
+                continue
+            raise GitHubReleaseError(f"Asset not found: {asset}")
 
         cleanup_notes_file: Path | None = None
         try:
