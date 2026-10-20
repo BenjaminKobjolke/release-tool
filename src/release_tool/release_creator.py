@@ -272,7 +272,8 @@ class ReleaseCreator:
             logger.info("GitHub Release declined by user.")
             return
 
-        assets = [self.root / asset for asset in cfg.assets]
+        # Asset paths take the same placeholders, for versioned artifact names.
+        assets = [self.root / self._format_label(asset, labels) for asset in cfg.assets]
         notes = None
         if not internal:
             notes_path = self.root / self.config.notes_dir / labels.notes / self.config.en_file

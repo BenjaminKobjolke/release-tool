@@ -813,6 +813,23 @@ class TestVersionNameBump:
             ReleaseCreator(config, tmp_path, version_file=version_file).create()
         assert publisher.return_value.publish.call_args.args[0] == "v1.1.1+1360"
 
+    def test_github_release_formats_asset_paths(self, tmp_path: Path) -> None:
+        version_file = self.version_file(tmp_path)
+        prepare_notes(tmp_path, "1360")
+        gh_config = GitHubReleaseConfig(enabled=True, assets=["out/app-{label}.xpi"])
+        config = self.config()
+        config.github_release = gh_config
+        with (
+            patch("release_tool.release_creator.capture_command", side_effect=["1.1.0", "1359"]),
+            patch("release_tool.release_creator.run_command", side_effect=self.bats(version_file)),
+            patch("release_tool.release_creator.confirm", return_value=True),
+            patch("release_tool.release_creator.GitHubPublisher") as publisher,
+            patch("release_tool.release_creator.render_notes_markdown", return_value="notes"),
+        ):
+            ReleaseCreator(config, tmp_path, version_file=version_file).create()
+        assets = publisher.return_value.publish.call_args.args[1]
+        assert assets == [tmp_path / "out/app-1.1.1+1360.xpi"]
+
     @pytest.mark.parametrize("failed", ["translate.bat", "build.bat"])
     def test_failed_build_restores_bytes(self, tmp_path: Path, failed: str) -> None:
         version_file = self.version_file(tmp_path)

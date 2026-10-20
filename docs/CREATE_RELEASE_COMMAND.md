@@ -257,7 +257,7 @@ publish = tools/publish_release.bat
 | `[Bats]` | `build` | `tools/build_release.bat` | Builds + bundles the artifact. |
 | `[Bats]` | `publish` | *(none)* | Offers a publish gate; each bat reads `previous_version_file`. Comma-separate for multiple channels, paired by position with `publish_platform` (see "Publish channels"). **Absent/empty → skip publish only** (commit/tag/push still offered). |
 | `[GitHubRelease]` | `enabled` | `false` | `true` offers the GitHub Release gate (step 9). Section absent → same as `false`. |
-| `[GitHubRelease]` | `assets` | *(none)* | Required when enabled. Comma-separated asset paths, relative to the project root. |
+| `[GitHubRelease]` | `assets` | *(none)* | Required when enabled. Comma-separated asset paths, relative to the project root. `{label}` resolves to the shipping label, for versioned names (`web-ext-artifacts/app-{label}.xpi`). |
 | `[GitHubRelease]` | `repo` | *(from git remote)* | `OWNER/NAME`. Only needed if the working dir's git remote can't resolve it. |
 | `[GitHubRelease]` | `tag_format` | `{label}` | Tag to attach the release to. |
 | `[GitHubRelease]` | `title_format` | `{label}` | Release title. |
