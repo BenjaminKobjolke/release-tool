@@ -210,6 +210,8 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 .claude/
+# Machine-specific coding-rules plugin path
+coding-rules.json
 
 # Local planning notes
 claude-plans/
