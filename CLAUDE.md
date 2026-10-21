@@ -24,4 +24,3 @@ stays binding either way.
 
 Do not inline rules back into this file and do not use `@import` for either file —
 they are intentionally referenced, not imported.
-
