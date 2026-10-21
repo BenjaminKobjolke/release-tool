@@ -1,8 +1,7 @@
 <!-- Managed by /coding-rules:apply — do not edit rule blocks by hand -->
-<!-- codex: enabled -->
 
 # Version
-3
+12
 
 Increase this version number whenever this rule file changes.
 
@@ -20,7 +19,9 @@ When working on a project, copy all relevant rules into the project's `CODING_RU
 mandates reading `CODING_RULES.md` before code work — never the full rules, and never an
 `@import` of `CODING_RULES.md` (imports auto-expand into context every turn).
 
-- Always include all rules from `COMMON_RULES.md` and `AI_RULES.md`
+- Always include all rules from `COMMON_RULES.md` and `IMPLEMENTATION_FLOW.md`.
+  `COMMON_RULES.md` is copied into the project's `CODING_RULES.md`;
+  `IMPLEMENTATION_FLOW.md` is copied into the project's own `IMPLEMENTATION_FLOW.md`
 - Also include applicable language-specific, project-type, and supplemental rule files
   (see `PROJECT_TYPES.md` for the project-type overview)
 - Include optional addon rule files only when the user has opted in to that addon
@@ -124,6 +125,34 @@ Every project must provide the following batch files in the `tools/` directory:
 
 These scripts ensure a consistent way to execute tests across environments.
 
+Both scripts must show progress while tests run: report the current setup stage, suite, or test
+before potentially slow work, and show results as execution proceeds. A start banner followed only
+by a final summary is insufficient. Prefer the runner's verbose output and stream or flush it so
+callers can see it during execution. Print one line per test: `flutter test --reporter expanded`,
+`pytest -v`, `phpunit --debug` (`--testdox` lists the tests only after the run on PHPUnit 10+).
+For a legitimate long wait without ordinary output, report the current stage or test and elapsed
+time at least every 60 seconds. Elapsed-time updates must not imply that a test completed or
+advanced. If output is captured for logs or filtering, keep progress visible during execution;
+replaying it only after completion does not count.
+
+Both must **exit with the test runner's own exit code** — capture it right after the run
+(`set TESTRESULT=%ERRORLEVEL%`) and end with `exit /b %TESTRESULT%`. A bat that prints
+"Some tests failed!" but exits 0 reports green to CI, to callers and to AI agents. Never pipe the
+test command into a plain filter — the pipe's exit code is the *filter's*, not the runner's. Never
+redirect the run into a temp file and print or filter that afterwards either: the script is then
+silent for the whole run. Run the command directly so its output streams. If output has to be
+filtered or logged, do it while it streams and return the runner's own code, e.g. `powershell
+-NoProfile -Command "<test command> | Where-Object { $_ -notmatch '<noise>' }; exit $LASTEXITCODE"`,
+or use the runner's own log-file option.
+
+---
+
+## No `pause` in Batch Files
+
+Batch files must never contain a `pause` line. `pause` waits for a keypress, so any bat that has one
+hangs forever when run by CI, another bat, or an AI agent. End with an explicit `exit /b <code>`
+instead, and let the caller decide whether to keep the window open (`cmd /k`).
+
 ---
 
 ## Prefer Type-Safe Values
@@ -155,6 +184,18 @@ existing equivalent. If found, copy or reference it. If not:
 
 This keeps cross-project tooling consistent and prevents the same script
 from being re-invented in every new project.
+
+---
+
+## New Projects Start From a Template
+
+Before creating a new project (an API, an app, a tool — anything that gets its own folder),
+ask the user whether a template project exists for that kind of project. Never scaffold from
+scratch without asking.
+
+- Run `/coding-rules:new-project`: it suggests the template remembered for that project type
+  in `~/.coding-rules/settings.json`, asks, and remembers a newly chosen template for next time.
+- A remembered template is a suggestion — still ask, the user may want another one or none.
 
 ---
 
@@ -284,6 +325,66 @@ responses.
 
 ---
 
+## API Clients: the API Sorts, Filters and Pages (BINDING)
+
+Applies to every project that reads data from an API — app, SPA, desktop tool, script.
+
+- **Show what the API returns, in the order it returns it.** Never download a whole collection
+  to sort, filter, search, count, group or join it locally.
+- **Read lists page by page.** Send the page size and position and load the next page when the
+  user scrolls or asks for more. Never loop over all pages to rebuild the full list on start or
+  on refresh.
+- **A new order, filter or search is a new request** with that parameter, starting at the first
+  page. Reordering the rows already held is wrong as soon as the list is paged: the client holds
+  one page, not the list.
+- **Do not download again what you already hold.** After a create, update or delete use the row
+  the response returned, or re-request the visible page — not the whole collection.
+- **A missing parameter is API work.** When an API you own lacks the sort, filter, search,
+  paging or count a screen needs, request it from the API project (linked todo or
+  `/feedback:write`) and plan against that. "The list is small or unpaged today, so the client
+  can do it" is not a reason. For a third-party API that cannot change, use the paging and
+  sorting it offers and mark any remaining local work with a comment naming the missing
+  capability.
+
+The server half is `project_type/REST_API.md` -> "List Endpoints: Paging, Sorting, Filtering".
+
+---
+
+## Shared Contract Repository for API and Clients (BINDING)
+
+When two or more projects we own talk over the wire — an API plus an app, an API plus a desktop
+app, or all three — keep their shared values in one contract repository. This does not apply to
+third-party APIs.
+
+- **Why:** each side keeps its own copy of every value that crosses the wire. When one side adds a
+  value the other does not know, the other side can break (for example, the API added a todo type
+  and the watcher rejected the whole todo list).
+- **One separate repository** (`<system>-contract`) holds the contract: at minimum every shared
+  enum in `enums.json`, shaped as `"<Name>": {"values": [sorted unique], "direction":
+  "api_to_client" | "client_to_api", "description": "<where it appears>"}`, plus a `README.md`
+  with the change rules and the list of consumers. Do not add version numbers; the submodule
+  pointer is the version.
+- **Every project includes it as a git submodule at `contract/`.** Pick up changes with
+  `git submodule update --remote contract` and commit the pointer bump. Production code never
+  reads `contract/`; it is test input only.
+- **The API is the producer:** export the contract from its own constants (one map, one export
+  script) and add a freshness test that fails when the committed file differs from the export.
+- **Each client is a consumer:** test that every mapped enum matches the contract in its
+  direction (`api_to_client` sets are equal so the client knows every value;
+  `client_to_api` client values are a subset) and that every contract name is mapped.
+- Both tests skip when `contract/` is not checked out.
+- **Change order:** for an `api_to_client` value, update the contract, release clients that know
+  it, then have the API emit it. For a `client_to_api` value, update the contract and API first,
+  then have the client send it. To remove a value, stop it at the API, then remove it from the
+  contract, then from clients. Never rename a value; renaming is an add plus a remove. Add a new
+  shared enum to the contract in the same change that introduces it.
+- Clients still tolerate an unknown value (skip the row; do not fail the whole response) as a
+  last line of defence, not as permission to skip the order.
+- **Setting it up** is work in each project: when one project of the system lacks the submodule
+  or its test, request it there (linked todo or `/feedback:write`).
+
+---
+
 ## Maximum File Length — 300 Lines
 
 Split files when they exceed 300 lines to keep code navigable during fast iteration.
@@ -379,6 +480,14 @@ lists in consuming code.
 
 ---
 
+## Search Across Partial Words
+
+When implementing user-facing search, split the query on whitespace and match every term as a
+case-insensitive substring of the searchable text, regardless of term order. For example,
+`release bat` should find `release_build.bat`. Preserve the project's existing searchable fields.
+
+---
+
 ## Inject Collaborators, Don't Fold Dependencies In
 
 Composition reuse comes in two shapes, and they differ sharply in how much coupling they add to
@@ -420,151 +529,8 @@ the wrong side of **No God Classes**.
 - **Correct pattern**: The subclass builds one `SendConfig` value object once; the base reads its
   fields.
 
----
-
 # Version
 8
-
-Increase this version number whenever this rule file changes.
-
-# AI Workflow Rules (All Languages)
-
-See `COMMON_RULES.md` for rules that apply to all languages.
-
-Unlike the per-language `*_RULES.md` files, these rules are **language-independent** and
-**always apply**. They are not subject to the "some rules may not apply to this project"
-filtering — include them in every project's `CODING_RULES.md`.
-
-These rules define the end-to-end workflow an AI agent must follow when planning and
-implementing changes. Each step is an existing skill referenced by its slash name; run the
-skill rather than reimplementing its behavior.
-
----
-
-## Codex toggle
-
-Some of the workflow steps below can be delegated to the Codex CLI. Whether a
-project uses Codex is controlled by a marker near the top of `CODING_RULES.md`:
-
-- `<!-- codex: enabled -->` — run the `codex exec` commands below.
-- `<!-- codex: disabled -->` or no marker — do NOT run Codex; perform the same
-  checks yourself via the listed fallback skills.
-
-The marker is managed by `/coding-rules:codex on|off|status` (or set during
-`/coding-rules:apply`). Do not flip it yourself without the user asking.
-
-## Feature / Change Workflow
-
-After a plan is proposed and the user approves it, follow this chain. The DRY
-gate is a precondition for implementing — not just an earlier step.
-
-The approved plan must first exist as an explicit Markdown file. Pass that same
-path to both plan-DRY commands.
-
-```
-plan approved
-
-plan DRY check
-  codex enabled:
-    codex exec --dangerously-bypass-approvals-and-sandbox "FULL PATH TO PLAN - Can you check the plan for DRY opportunities and if you find any, apply them to the original plan file. Only edit the plan file — do NOT modify any source code or implement the plan. Always add a summary at the end called SUMMARY DRY — if you made changes, describe what and why; if you found nothing, write 'No DRY opportunities found.'"
-  codex disabled:
-    /plan:dry <plan-file>
-
-plan convention check
-  codex enabled:
-    codex exec --dangerously-bypass-approvals-and-sandbox "FULL PATH TO PLAN $convention-check - If you want to make any changes, apply them to the original plan file. Only edit the plan file — do NOT modify any source code or implement the plan. Always add a summary at the end called SUMMARY CONVENTION CHECK — if you made changes, describe what and why; if you found nothing, write 'No convention issues found.'"
-  codex disabled:
-    /convention:check — apply findings to the plan file
-
-/plan:dry-checked    reload the DRY and convention adjusted plan
-
-restate Definition-of-Done aloud
-
-implement
-  While implementing, keep the list of every file you created or modified in THIS
-  session — you know it from your own edits; do NOT derive it from git (other
-  sessions may have concurrent uncommitted changes). After implementing, write the
-  list (one path per line) to a changed-files file next to the plan, named after it:
-  <plan-file-path-without-.md>-changed-files.md
-  (e.g. claude-plans/my-feature-changed-files.md). The plan file is unique per
-  session, so concurrent sessions never collide.
-  Include only source-code files. Exclude documentation and other non-code
-  files (`.md`, plain-text docs, the plan file itself) — the DRY audit only
-  looks at code.
-
-post-implementation DRY audit — scope is ONLY the changed-files file above
-  codex enabled:
-    codex exec --dangerously-bypass-approvals-and-sandbox "Read FULL PATH TO CHANGED-FILES FILE and check ONLY the files listed there for DRY opportunities. Do not use git status or git diff to widen the scope — other sessions may have concurrent uncommitted changes. Do NOT modify any code. Write your suggestions to claude-plans/post-implementation-check.md, overwriting the file if it already exists. Include for each finding the affected files and a short rationale. Always write the file, even if you found nothing — in that case write a SUMMARY block stating 'No DRY opportunities found.'"
-    then read claude-plans/post-implementation-check.md and discuss/apply the findings with the user
-  codex disabled:
-    /dry:check <files from the changed-files file, as pathspec>
-
-Post-Feature Verification + Post-Implementation Code Analysis (project-specific, below)
-
-```
-
-### DRY gate (precondition for implementing)
-
-Do not write a single line until ALL are true. Restate this gate aloud at the
-moment you start implementing — if you cannot, the gate is not cleared:
-
-- [ ] `/plan:dry <plan-file>` adjusted that file and completed its Ponytail pass.
-- [ ] `/plan:dry-checked <plan-file>` reloaded the same adjusted plan.
-- [ ] `/convention:check` found the existing utilities/patterns to reuse.
-
-The gate survives the `implement` step: if mid-implementation you add a new
-helper, type, or pattern the gate would have caught, stop and re-clear it
-before continuing.
-
-### Definition of Done — restate aloud before implementing
-
-Before the first edit, state in chat what "done" means for THIS change:
-
-- [ ] Scope: <one line — what changes, what does not>
-- [ ] Reuse: <existing function/component this builds on, with path>
-- [ ] DRY gate cleared (above)
-- [ ] `/dry:check <session changed-files>` clean (scoped to the changed-files file, never bare)
-- [ ] `/verify:after-change` green (tests + analysis)
-
-### Post-implementation DRY audit — paste-in template
-
-Run `/dry:check` scoped to the session's changed-files file, then paste and fill:
-
-```
-DRY audit — <change name>
-Changed files:     <list from the changed-files file, not git>
-Duplication found: <none | describe>
-Consolidated into: <shared fn/module + path | n/a>
-Convention reused: <name + path>
-Verdict:           <clean | needs rework>
-```
-
----
-
-## Bug-Fix Workflow
-
-Bug fixes use a shorter variant (no plan-DRY phase):
-
-```
-bugs:fix
-  → /verify:after-change
-```
-
----
-
-## Optional Addons
-
-These live in `ai_rules_addons/` and are **not** always-on. Each is opt-in per project — ASK
-the user whether they want it before wiring it into that project's `CODING_RULES.md`.
-
-- [`ai_rules_addons/graphify.md`](ai_rules_addons/graphify.md) — graphify knowledge graph:
-  scoped + directed AST build, folder layout, gitignore, and the query/refresh rules to paste
-  into a project's `CODING_RULES.md`.
-
----
-
-# Version
-1
 
 Increase this version number whenever this rule file changes.
 
@@ -572,347 +538,114 @@ Increase this version number whenever this rule file changes.
 
 See `COMMON_RULES.md` for rules that apply to all languages.
 
-## Template Engine
+## Optional rule files
 
-Keep Python, HTML, CSS, and JS separated.
-This means using a template engine.
+- `python/WEB_TEMPLATES.md` — web templates with Jinja2 or Flask.
+- `python/GUI.md` — PySide6 desktop interface.
+- `python/LOCALIZATION.md` — translated content.
+- `python/RELEASE.md` — release tooling.
+- `python/INSTALLER.md` — Windows installer.
+- `python/DATABASE.md` — SQLAlchemy database.
 
-Use Jinja2:
+Run `/coding-rules:apply` to add one when the project gains it.
 
-```bash
-uv add jinja2
-```
+## Recipes
 
-Do not put JS code into templates. Use separate `.js` files.
+Ready-made implementations for recurring features. They are **not** copied into the
+project — they live in the `coding-rules` plugin under `rules/python/recipes/`. Read the
+matching recipe in full before implementing the feature, and follow it instead of
+inventing a new approach.
 
-Example structure:
+- `python/recipes/SINGLE_INSTANCE.md` — prevent a second instance of the app from starting.
 
-```
-project/
-├── app/
-├── templates/
-└── static/
-    ├── css/
-    └── js/
-```
+## CLI Menus
 
-Example template:
-
-```html
-<!-- templates/page.html -->
-<!doctype html>
-<html>
-  <head>
-    <link rel="stylesheet" href="/static/css/app.css">
-  </head>
-  <body>
-    <h1>{{ title }}</h1>
-    <script src="/static/js/app.js"></script>
-  </body>
-</html>
-```
-
----
-
-## GUI Framework
-
-For **desktop GUI** applications use **PySide6** (Qt for Python). Always install the
-latest version — do not pin an old one:
+For **interactive command-line** applications, never hand-roll a menu out of `input()`
+and printed option lists. Use **`pick`** — an arrow-key menu with a selection
+indicator, scrolling for long lists, and optional multiselect — on its **blessed**
+backend:
 
 ```bash
-uv add pyside6
+uv add "pick[blessed]"
 ```
 
-This is separate from the web template engine above: Jinja2 renders web HTML,
-PySide6 builds native desktop windows. Pick by app type.
+**Always pass `backend="blessed"`.** `pick`'s default curses backend breaks on Windows
+the moment the program runs a child that inherits the console — a `git` call, a build
+step, anything streaming its output live. From then on curses stops translating the
+arrow keys for the rest of the process: the keys still arrive, but as raw `ESC [ A`
+sequences that `pick` ignores, so every later menu draws and then accepts nothing. It
+looks like a hang and it is sticky — re-initialising curses does not recover it, and
+neither does restoring the console mode. Only never letting the child touch the console
+(capturing its output, which costs live streaming) or decoding the sequences avoids it.
+blessed decodes them, so subprocesses keep the console and their live output.
 
----
+### Wrap it — one menu helper per project
 
-## Localization
-
-Use the `python-localization` library for multi-language support:
-https://github.com/BenjaminKobjolke/python-localization
-
-### Installation (uv)
-
-#### Option A (recommended): Add as dependency to the project
-
-```bash
-uv add "git+https://github.com/BenjaminKobjolke/python-localization.git"
-```
-
-#### Option B: Install into the current environment (without adding to project deps)
-
-```bash
-uv pip install "git+https://github.com/BenjaminKobjolke/python-localization.git"
-```
-
-### Directory Structure
-
-```
-project/
-├── lang/
-│   ├── en.json    # English (default)
-│   ├── de.json    # German
-│   └── fr.json    # French
-├── app/
-└── templates/
-```
-
-### Translation File Format
-
-Create `lang/en.json` with nested structure:
-
-```json
-{
-  "nav": {
-    "dashboard": "Dashboard",
-    "settings": "Settings",
-    "logout": "Logout"
-  },
-  "auth": {
-    "login_title": "Login",
-    "signin_subtitle": "Sign in to access your dashboard",
-    "error": {
-      "auth_failed": "Authentication failed. Please try again.",
-      "rate_limited": "Too many attempts. Please try again later."
-    }
-  },
-  "flash": {
-    "success": {
-      "saved": "Changes saved successfully.",
-      "deleted": "Item deleted successfully."
-    },
-    "error": {
-      "not_found": "Item not found.",
-      "invalid_id": "Invalid ID."
-    }
-  },
-  "common": {
-    "cancel": "Cancel",
-    "save": "Save",
-    "delete": "Delete",
-    "edit": "Edit"
-  }
-}
-```
-
-### Python Setup
-
-#### Container Integration
-
-Add a method to your DI container:
+Never import `pick` at more than one call site. Wrap it in a single helper class
+(e.g. `menu.py` / `UserChoicesHandler`) so keyboard handling, the indicator style,
+and Ctrl-C behavior are defined once:
 
 ```py
-# app/container.py
-from pathlib import Path
+# src/<pkg>/menu.py
+import sys
+from pick import pick
 
-# Adjust import to the real package name of your library
-# from python_localization import Localization
 
-class Container:
-    def __init__(self, base_dir: Path):
-        self.base_dir = base_dir
-        self._localization = None
-
-    def get_localization(self):
-        if self._localization is None:
-            self._localization = Localization(
-                driver="json",
-                lang_dir=str(self.base_dir / "lang"),
-                default_lang="en",
-                fallback_lang="en",
-            )
-        return self._localization
+def show_menu(
+    options: list[str],
+    title: str,
+    indicator: str = "*",
+    default_index: int = 0,
+) -> int:
+    """Show an arrow-key menu; return the selected index. Ctrl-C exits."""
+    try:
+        _, index = pick(
+            options=options,
+            title=title,
+            indicator=indicator,
+            default_index=default_index,
+            backend="blessed",  # never the curses default: see above
+        )
+        return index
+    except KeyboardInterrupt:
+        sys.exit(1)
 ```
 
-#### Controller Helper
+### Keep option labels and actions in step
 
-Add translation helper to your base controller:
+The menu returns an **index**, not a parsed letter. Build the label list and a parallel
+list of typed action values (enum members — see "Prefer Type-Safe Values") in the same
+place, so an option can never be shown without a handler:
 
 ```py
-# app/web/base_controller.py
-class BaseController:
-    def __init__(self, container):
-        self.container = container
+options: list[str] = []
+actions: list[MenuAction] = []
+options.append("Commit"); actions.append(MenuAction.COMMIT)
+if repo.has_untracked:
+    options.append("Add all"); actions.append(MenuAction.ADD_ALL)
+options.append("Cancel"); actions.append(MenuAction.CANCEL)
 
-    def get_localization(self):
-        return self.container.get_localization()
-
-    def t(self, key: str, params: dict[str, object] | None = None) -> str:
-        return self.get_localization().t(key, params or {})
-        # or .translate(...) / .lang(...), depending on your library
+action = actions[show_menu(options, title)]
 ```
 
-Usage in controllers:
+### Testing
+
+`pick` needs a real terminal, so tests must not call it. Patch the project's wrapper
+(`show_menu`) — not `pick` itself — and assert on the option labels it was handed:
 
 ```py
-from app.i18n.keys import TK
-
-# Simple translation
-self.add_flash("success", self.t(TK.FLASH_SUCCESS_SAVED))
-
-# With placeholders
-self.add_flash("info", self.t("messages.welcome", {":name": user.name}))
+monkeypatch.setattr("<pkg>.menu.show_menu", lambda options, title, **kw: 0)
 ```
 
----
+Keep a non-interactive path for every menu (a CLI flag, or auto-select when there is a
+single option) so the program stays scriptable and testable without a TTY. Have the
+wrapper refuse outright when `sys.stdin`/`sys.stdout` is not a TTY: without a console the
+menu blocks on a key that can never arrive, which reads as a freeze rather than an error.
 
-## Jinja2 Integration
-
-### Add the `t()` Function
-
-Where you configure Jinja2:
-
-```py
-# app/web/templates.py
-from jinja2 import Environment, FileSystemLoader
-from app.i18n.keys import TK
-
-def create_env(localization, templates_dir: str) -> Environment:
-    env = Environment(loader=FileSystemLoader(templates_dir), autoescape=True)
-
-    def t(key: str, params: dict[str, object] | None = None) -> str:
-        return localization.t(key, params or {})
-
-    env.globals["t"] = t
-    env.globals["TK"] = TK
-    return env
-```
-
-### Usage in Templates
-
-Simple translations:
-
-```html
-<h1>{{ t(TK.NAV_DASHBOARD) }}</h1>
-<button>{{ t(TK.COMMON_SAVE) }}</button>
-<a href="/logout">{{ t(TK.NAV_LOGOUT) }}</a>
-```
-
-With placeholders (define in JSON as `:placeholder`):
-
-```json
-{
-  "messages": {
-    "welcome": "Hello, :name!",
-    "items_count": "You have :count items"
-  }
-}
-```
-
-```html
-<p>{{ t("messages.welcome", {":name": user.name}) }}</p>
-<p>{{ t("messages.items_count", {":count": items|length}) }}</p>
-```
-
-Conditional content:
-
-```html
-{% if error == "auth_failed" %}
-  {{ t("auth.error.auth_failed") }}
-{% elif error == "rate_limited" %}
-  {{ t("auth.error.rate_limited") }}
-{% endif %}
-```
-
-In attributes:
-
-```html
-<a href="/back" title="{{ t('common.back') }}">
-  <i class="icon-back"></i>
-</a>
-
-<button onclick="return confirm('{{ t('confirm.delete') }}')">
-  {{ t('common.delete') }}
-</button>
-```
-
----
-
-## Translation Key Naming Convention
-
-Use dot notation with logical grouping:
-
-```
-section.subsection.key
-
-nav.dashboard            - Navigation items
-auth.login_title         - Authentication related
-flash.success.saved      - Flash messages by type
-flash.error.not_found
-form.label.name          - Form labels
-form.placeholder.email   - Form placeholders
-form.validation.required - Validation messages
-common.save              - Reusable UI elements
-errors.404.title         - Error pages
-```
-
----
-
-## Translation Keys as Constants
-
-Using raw strings like `t("nav.dashboard")` is error-prone. Create a `TK` class with all keys as constants for IDE autocomplete and refactoring safety.
-
-Create `app/i18n/keys.py`:
-
-```py
-# app/i18n/keys.py
-class TK:
-    # Navigation
-    NAV_DASHBOARD = "nav.dashboard"
-    NAV_SETTINGS = "nav.settings"
-    NAV_LOGOUT = "nav.logout"
-
-    # Auth
-    AUTH_LOGIN_TITLE = "auth.login_title"
-    AUTH_ERROR_AUTH_FAILED = "auth.error.auth_failed"
-
-    # Flash messages
-    FLASH_SUCCESS_SAVED = "flash.success.saved"
-    FLASH_ERROR_NOT_FOUND = "flash.error.not_found"
-
-    # Common
-    COMMON_CANCEL = "common.cancel"
-    COMMON_SAVE = "common.save"
-```
-
-Usage in controllers:
-
-```py
-from app.i18n.keys import TK
-self.add_flash("success", self.t(TK.FLASH_SUCCESS_SAVED))
-```
-
-Usage in templates:
-
-```html
-{{ t(TK.NAV_DASHBOARD) }}
-```
-
-### Benefits
-
-* IDE autocomplete for all translation keys
-* Refactoring support
-* Easy to find all usages of a key
-* Fewer typos / runtime missing-key bugs
-
----
-
-## Adding New Languages
-
-1. Copy `lang/en.json` to `lang/de.json`
-2. Translate all values (keep keys identical)
-3. Change language in configuration:
-
-```py
-self._localization = Localization(
-    driver="json",
-    lang_dir=str(self.base_dir / "lang"),
-    default_lang="de",
-    fallback_lang="en",
-)
-```
+Because the tests patch the wrapper, nothing in the suite ever drives a real menu — so
+also keep a small manual script (`tools/menu_smoke.py` + a `.bat`) that opens a menu, runs
+a subprocess inheriting the console, then opens another menu. That second menu is exactly
+what the curses backend breaks, and only a human at a terminal can see it.
 
 ---
 
@@ -968,35 +701,7 @@ update.bat
 
 ---
 
-## Release Workflow
-
-Set up the release system with `/release:setup`. Reusable pieces live in
-`python_setup_files/`:
-
-- `tools/release/build_number.py` — self-contained helper: manages the integer in
-  `build_version.txt` (project root) and prints the `<version>_<build>` label
-  (version from `pyproject.toml`). Actions: `get | increment | decrement | label`.
-- `tools/build_get.bat`, `tools/build_increment.bat`, `tools/build_decrement.bat`,
-  `tools/version_get.bat` — thin `uv run` wrappers over the helper.
-- `CREATE_NEW_RELEASE.template.md` — fill-in-the-blanks for `docs/CREATE_NEW_RELEASE.md`.
-- The Python stack recipe read by `/release:create-release-notes` lives in the shared
-  `coding-rules/CREATE_RELEASE_NOTES.md` (`## Python / uv` section), not here.
-
-Conventions:
-
-- **Release label** = `<version>_<build>` (e.g. `0.1.0_22`). `version` is semver in
-  `pyproject.toml` (bumped by hand); `build` is an integer in `build_version.txt`.
-- **Release notes** = `release_notes/<version>_<build>/<locale>.json`. The actual
-  text is the `notes` array. Author **only `en.json`**; generate other locales with
-  a translation bat (mandatory — never skip).
-- **Bundle `release_notes/` into the build** so the in-app view ships with the binary
-  (PyInstaller: add to spec `datas` + `copy_metadata(<pkg>)`).
-- **In-app view**: load all releases, sort **newest first**, show the latest first
-  with Older/Newer navigation, fall back to `en.json` when a locale is missing.
-
----
-
-# 8 Essential Additional Rules (must-have)
+# Essential Additional Rules (must-have)
 
 ## 1) Use `pyproject.toml` as the single source of truth
 
@@ -1073,13 +778,7 @@ Rules:
 
 ---
 
-## 6) Database access uses SQLAlchemy ORM
-
-If a database is needed, use SQLAlchemy ORM (not raw SQL or ad-hoc drivers).
-
----
-
-## 7) Use `spec=` with MagicMock to catch interface mismatches
+## 6) Use `spec=` with MagicMock to catch interface mismatches
 
 `MagicMock` without `spec` accepts **any** attribute, even non-existent ones:
 
@@ -1145,7 +844,7 @@ with patch("module.ClassName", spec=RealClass) as mock_cls:
 
 ---
 
-## 8) Required Batch Files
+## 7) Required Batch Files
 
 Every project must include these batch files:
 
@@ -1226,20 +925,49 @@ def get_searchable_values(obj: object) -> list[str]:
 Prefer the Protocol approach for simple cases. Use dataclass metadata when you need declarative
 per-field control without writing boilerplate methods.
 
----
-
 # Version
-5
+14
 
 Increase this version number whenever this rule file changes.
 
 # graphify Knowledge Graph (Optional Addon)
 
 graphify turns a code folder into a queryable knowledge graph — god nodes, communities,
-cross-file relationships, fan-in/fan-out. The build is AST-only: no LLM, no API cost. Use it to
-orient before grep and to spot god classes. In this project the code lives in `src/`.
+cross-file relationships, fan-in/fan-out. Use it to orient before grep and to spot god classes.
 
-### Using the graph
+**Keep the build AST-only (no LLM, no API cost) by scoping to the code dir.** graphify runs a
+free deterministic AST pass on *code* files, but a separate **LLM pass** on every *non-code*
+file — docs, `.md`, `.txt`, config `.yaml`, images (vision), audio/video (whisper). That pass
+needs an LLM (Gemini key or the host agent) and costs tokens. A build scoped to a pure-code dir
+(`lib/`, `src/`, `app/`) has zero non-code files, so it skips the LLM pass entirely and rebuilds
+need no AI. A repo-root build (`/graphify .`) sweeps in `docs/`, `README.md`, icons, and sound
+assets — forcing the LLM pass. **Always scope to the code dir; never build the repo root.**
+
+---
+
+Setup instructions live in the coding-rules plugin at `graphify_setup_files/SETUP.md`.
+
+## Folder layout (know which is which)
+
+- `graphify-out/` at the **project root** = the **live graph** (`graph.json`, `GRAPH_REPORT.md`,
+  `graph.html`). The only one queries read. Keep it `directed=True`.
+- `graphify-out/cache/` at the project root = AST cache written by the CLI refresh (it runs
+  with `GRAPHIFY_OUT` pointing at the root folder, see "Refreshing"). Scratch only.
+- `<code-dir>/graphify-out/` = legacy AST cache from the skill build. Never the live graph
+  under the documented flow; safe to delete. If a `graph.json` ever appears in there, a bare
+  `graphify update` ran without `GRAPHIFY_OUT` — delete that `graph.json`, keep `cache/`.
+
+## What the graph knows (and does not)
+
+- Knows: code structure — classes, methods, calls, references, extends/implements, plus
+  fan-in/fan-out and community / god-node structure.
+- Does NOT know: business rules, API response shape, or rendered template/view output. It is a
+  snapshot — stale until rebuilt. Constants referenced by string can appear as isolated nodes
+  (AST limitation, not a missing dependency).
+
+---
+
+## Using the graph
 
 - For codebase questions, run `graphify query "<question>"` first when `graphify-out/graph.json`
   exists. `graphify path "<A>" "<B>"` for relationships; `graphify explain "<concept>"` for a
@@ -1249,22 +977,24 @@ orient before grep and to spot god classes. In this project the code lives in `s
 - Read `graphify-out/GRAPH_REPORT.md` only for broad architecture review, or when
   query/path/explain do not surface enough context.
 
-### Refreshing after a code change
+## Manual refresh bat (`tools/graphify_update.bat`)
 
-- After a feature or any code change, rebuild via the **directed skill flow**: re-run
-  `/graphify src/ --directed`, writing to the project-root `graphify-out/`.
-- Do NOT use the bare `graphify update src/` CLI — it has no `--directed` flag and writes a
-  full UNDIRECTED graph into `src/graphify-out/` (wrong location), desyncing the live
-  graph. If that stray graph appears, delete `src/graphify-out/graph.json` (keep `cache/`).
-- Verify after rebuild: `graph.json` has `directed: true` and lives in root `graphify-out/`.
-  For a **multi-path merge**, also grep `graph.json` for a node-ID prefix belonging to a second
-  scanned dir (e.g. `framework_`) to prove that dir actually landed — `directed: true` passes even
-  if one dir silently dropped out of the merge.
+Copied from the `graphify_update.bat` template beside this addon, adjusted (`CODE_DIR`).
+Run it from anywhere — it `pushd`es to the repo root itself.
 
-### In-tree vendored code — exclude it, scoping alone won't
+- **Does:** (1) the live-graph CLI refresh from "Refreshing after a code change" in
+  `IMPLEMENTATION_FLOW.md` (sets `GRAPHIFY_OUT` to the root
+  `graphify-out\`, passes the absolute code dir); (2) smoke test — prints the root
+  graph's `directed` flag + node count, `god-nodes`, a sample `query`.
+- **Does NOT:** re-extract docs (see "Doc changes" in `IMPLEMENTATION_FLOW.md`) or build a first graph — that is the
+  skill flow (`/graphify <code-dir> --directed`).
+- **When to use:** after a code change outside an AI session, or as a "is graphify still
+  wired up?" check after cloning, a dependency change, or a graphify upgrade.
 
-`--directed`-scoping the build to `src/` keeps external `vendor/`/`node_modules/` out
-automatically, but a **committed** third-party library living *inside* `src/` (a bundled
+## In-tree vendored code — exclude it, scoping alone won't
+
+`--directed`-scoping the build to `<code-dir>` keeps external `vendor/`/`node_modules/` out
+automatically, but a **committed** third-party library living *inside* `<code-dir>` (a bundled
 SDK, a copied library folder) is not gitignored, so graphify scans it like first-party code.
 Symptom: god-nodes / oversized communities in `GRAPH_REPORT.md` whose class names belong to a
 library, not the app (e.g. hundreds of `Facebook*`/`GraphNode*` nodes from an in-tree Facebook
@@ -1272,7 +1002,7 @@ SDK).
 
 Fix once per project:
 
-1. Spot the vendored folder(s) under `src/` (e.g. `application/libs/`). Committed
+1. Spot the vendored folder(s) under `<code-dir>` (e.g. `application/libs/`). Committed
    **asset/sprite dirs** are the same kind of noise — bundled UI images (jQuery-UI/colorbox
    sprites, e.g. `extensions/backend/assets/images/`) aren't code but graphify still scans them;
    exclude them the same way.
@@ -1281,9 +1011,12 @@ Fix once per project:
    # Vendored / third-party code + bundled assets — not our architecture, noise in the graph
    libs/
    ```
-3. Rebuild. A narrower corpus is a *smaller* graph, which trips the shrink guard (#479) — delete
-   the stale `graphify-out/graph.json` first (keep `graphify-out/cache/`), then re-run
-   `/graphify src/ --directed`.
+3. Rebuild with the CLI refresh plus `--force` — a narrower corpus is a *smaller* graph,
+   which trips the shrink guard (#479):
+   `GRAPHIFY_OUT="$PWD/graphify-out" graphify update --force "$PWD/<code-dir>"`.
+   Do NOT delete `graphify-out/graph.json` first (see "Refreshing after a code change" in
+   `IMPLEMENTATION_FLOW.md`: the CLI would rebuild
+   it undirected and drop the doc nodes).
 4. Verify: grep the vendored library's distinctive class name in the new `graph.json` — it
    should return only first-party code that *uses* the library (e.g. your own `FacebookManager`),
    never the library's own classes.
