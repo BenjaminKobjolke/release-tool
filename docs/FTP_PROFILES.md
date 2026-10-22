@@ -2,7 +2,7 @@
 
 Store shared FTP settings in `ftp_profiles.ini` at the release-tool checkout
 root. The file is gitignored because it may contain credentials. Start from
-`examples/ftp_profiles.ini`:
+`ftp_profiles.ini.example` in the same folder:
 
 ```ini
 [kobjolke.com - apps]
