@@ -181,6 +181,8 @@ flushed `::tw-input-line::` line so the Tickets app can display and answer it.
    Set `versioning = semver` to bump the version's last segment instead of a
    build counter (e.g. `0.1.6` → `0.1.7`) — see
    [`docs/CREATE_RELEASE_COMMAND.md`](docs/CREATE_RELEASE_COMMAND.md#versioning-modes).
+   Set `semver_patch_max = 10` to roll over after patch 10 (for example,
+   `1.7.10` → `1.8.0`); this setting applies only in semver mode.
 2. **Ensure release notes** (skipped with `--internal`) — if `en.json` is missing
    for the shipping label, author it headlessly via
    `codex exec --dangerously-bypass-approvals-and-sandbox`; abort if it still
@@ -215,6 +217,7 @@ publish_platform = Google Play Store ; named in the publish prompt (comma-list f
 ; label_format = {version}_{build}
 ; notes_label_format = {version}_{build}  ; defaults to label_format; set when the notes folder must differ
 ; versioning = build                      ; build (counter) or semver (bump version's last segment)
+; semver_patch_max = 10              ; optional; semver only, roll over after this patch number
 ; english_only = false
 ; build_self_contained = false       ; true => build bat owns bump/translate/rollback itself
 ; bump_version_name = false          ; full releases also bump the version name

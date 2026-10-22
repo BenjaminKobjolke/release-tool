@@ -27,6 +27,7 @@ class TestCreateConfig:
         assert config.english_only is False
         assert config.build_self_contained is False
         assert config.bump_version_name is False
+        assert config.semver_patch_max is None
         assert config.version_file == Path("pubspec.yaml")
         assert config.bats.version_get == "tools/version_get.bat"
         assert config.bats.build == "tools/build_release.bat"
@@ -122,6 +123,29 @@ class TestCreateConfig:
         config = CreateConfig.from_ini_file(config_path)
 
         assert config.versioning == "semver"
+
+    def test_semver_patch_max(self, tmp_path: Path) -> None:
+        config_path = tmp_path / "release_create.ini"
+        config_path.write_text("[Release]\nversioning = semver\nsemver_patch_max = 10\n")
+
+        config = CreateConfig.from_ini_file(config_path)
+
+        assert config.semver_patch_max == 10
+
+    @pytest.mark.parametrize(
+        ("setting", "versioning"),
+        [
+            ("semver_patch_max = invalid", "semver"),
+            ("semver_patch_max = 0", "semver"),
+            ("semver_patch_max = 10", "build"),
+        ],
+    )
+    def test_invalid_semver_patch_max(self, tmp_path: Path, setting: str, versioning: str) -> None:
+        config_path = tmp_path / "release_create.ini"
+        config_path.write_text(f"[Release]\nversioning = {versioning}\n{setting}\n")
+
+        with pytest.raises(ConfigurationError, match="semver_patch_max"):
+            CreateConfig.from_ini_file(config_path)
 
     def test_invalid_versioning(self, tmp_path: Path) -> None:
         config_path = tmp_path / "release_create.ini"

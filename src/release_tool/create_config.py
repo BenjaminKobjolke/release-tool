@@ -93,6 +93,7 @@ class CreateConfig:
     # None => no GitHub Release gate offered after commit/tag/push.
     github_release: GitHubReleaseConfig | None = None
     bump_version_name: bool = False
+    semver_patch_max: int | None = None
     version_file: Path = Path(DEFAULT_VERSION_FILE)
 
     @classmethod
@@ -113,6 +114,14 @@ class CreateConfig:
         english_only = _getboolean(parser, "Release", "english_only", False)
         build_self_contained = _getboolean(parser, "Release", "build_self_contained", False)
         bump_version_name = _getboolean(parser, "Release", "bump_version_name", False)
+        semver_patch_max = None
+        if "semver_patch_max" in release_section:
+            try:
+                semver_patch_max = int(release_section["semver_patch_max"])
+            except ValueError as e:
+                raise ConfigurationError("semver_patch_max must be an integer") from e
+            if semver_patch_max < 1:
+                raise ConfigurationError("semver_patch_max must be at least 1")
 
         versioning = (
             release_section.get("versioning", DEFAULT_VERSIONING).strip().lower()
@@ -125,6 +134,8 @@ class CreateConfig:
             )
         if bump_version_name and versioning == "semver":
             raise ConfigurationError("bump_version_name cannot be used with versioning = semver")
+        if semver_patch_max is not None and versioning != "semver":
+            raise ConfigurationError("semver_patch_max can only be used with versioning = semver")
         if bump_version_name and build_self_contained:
             raise ConfigurationError("bump_version_name cannot be used with build_self_contained")
 
@@ -196,6 +207,7 @@ class CreateConfig:
             bats=bats,
             github_release=github_release,
             bump_version_name=bump_version_name,
+            semver_patch_max=semver_patch_max,
             version_file=Path(
                 release_section.get("version_file", DEFAULT_VERSION_FILE).strip()
                 or DEFAULT_VERSION_FILE

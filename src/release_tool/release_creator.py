@@ -111,7 +111,7 @@ class ReleaseCreator:
 
     def _semver_labels(self, version: str) -> ReleaseLabels:
         """Semver mode: shipping = version with its last segment +1."""
-        shipping = bump_last_segment(version)
+        shipping = bump_last_segment(version, self.config.semver_patch_max)
         # semver has no build counter, so notes share the shipping version.
         return ReleaseLabels(previous=version, shipping=shipping, notes=shipping)
 

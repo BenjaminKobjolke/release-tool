@@ -28,6 +28,7 @@ def make_config(
     label_format: str = "{version}_{build}",
     notes_label_format: str = "{version}_{build}",
     build_self_contained: bool = False,
+    semver_patch_max: int | None = None,
     publish_channels: list[PublishChannel] | None = None,
     github_release: GitHubReleaseConfig | None = None,
 ) -> CreateConfig:
@@ -54,6 +55,7 @@ def make_config(
         publish_channels=publish_channels or [],
         bats=bats,
         github_release=github_release,
+        semver_patch_max=semver_patch_max,
     )
 
 
@@ -227,6 +229,21 @@ class TestComputeLabel:
 
 
 class TestSemverLabels:
+    @patch("release_tool.release_creator.capture_command")
+    def test_semver_rolls_patch_to_next_minor(
+        self, mock_capture: MagicMock, tmp_path: Path
+    ) -> None:
+        mock_capture.side_effect = ["1.7.13"]
+        creator = ReleaseCreator(
+            make_config(versioning="semver", semver_patch_max=10), tmp_path, dry_run=True
+        )
+
+        labels = creator._compute_labels()
+
+        assert labels.previous == "1.7.13"
+        assert labels.shipping == "1.8.0"
+        assert labels.notes == "1.8.0"
+
     @patch("release_tool.release_creator.capture_command")
     def test_semver_bumps_last_segment(self, mock_capture: MagicMock, tmp_path: Path) -> None:
         mock_capture.side_effect = ["0.1.6"]  # build_get is never read in semver

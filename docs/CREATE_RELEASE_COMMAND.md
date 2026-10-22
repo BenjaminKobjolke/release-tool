@@ -122,7 +122,9 @@ answered automatically and each answer is logged. Without it, the prompts remain
   of the version (`0.1.6` → `0.1.7`). `build_get` and `label_format` are ignored;
   `build_increment`/`build_decrement` are the project's version bump/rollback bats
   (e.g. `increment_version.bat` writing `version.txt`). Use for projects whose
-  release *is* a patch bump.
+  release *is* a patch bump. Optionally set `semver_patch_max` to roll over to the
+  next segment when the next patch would exceed that maximum (for example,
+  `1.7.10` → `1.8.0` with a maximum of `10`).
 
 ## Version name bump (`bump_version_name`)
 
@@ -244,6 +246,7 @@ publish = tools/publish_release.bat
 | `[Release]` | `label_format` | `{version}_{build}` | How the commit/tag label is composed (`build` mode only). |
 | `[Release]` | `notes_label_format` | *(= `label_format`)* | Key for the release-notes subfolder, when it must differ from the commit/tag label. See [`docs/NOTES_LABEL_FORMAT.md`](NOTES_LABEL_FORMAT.md). |
 | `[Release]` | `versioning` | `build` | `build` (counter) or `semver` (patch bump). See "Versioning modes". |
+| `[Release]` | `semver_patch_max` | *(none)* | Optional positive patch maximum; when exceeded in `semver` mode, bump the previous segment and reset the patch to `0`. |
 | `[Release]` | `previous_version_file` | `tools/previous_version.txt` | Where the previous (online) version is recorded for the publish bat. Gitignore it. |
 | `[Release]` | `english_only` | `false` | `true` skips the translate step. |
 | `[Release]` | `build_self_contained` | `false` | `true` skips `build_increment`/`translate`/`build_decrement` — the `build` bat owns them. See "Self-contained build bats". |
