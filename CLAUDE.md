@@ -24,3 +24,20 @@ stays binding either way.
 
 Do not inline rules back into this file and do not use `@import` for either file —
 they are intentionally referenced, not imported.
+
+## Code Analysis
+
+Use the changed-files analyzer after implementing a feature or fixing a bug:
+
+```powershell
+cmd /c ".\tools\analyze_changed_and_new_files.bat"
+```
+
+It filters reported findings to new or modified files while running the configured
+project analyzers. For a whole-project audit, run:
+
+```powershell
+cmd /c ".\tools\analyze_code.bat"
+```
+
+Analyzer reports are written as per-rule files under `code_analysis_results/`.
