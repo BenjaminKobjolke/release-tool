@@ -30,5 +30,6 @@
       "tests.bat"
     ],
     "tests": true
-  }
+  },
+  "analysis_code_quality_answered": true
 }
