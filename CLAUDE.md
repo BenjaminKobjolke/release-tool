@@ -34,7 +34,8 @@ cmd /c ".\tools\analyze_changed_and_new_files.bat"
 ```
 
 It filters reported findings to new or modified files while running the configured
-project analyzers. For a whole-project audit, run:
+project analyzers. It exits non-zero on any warning or error in those files; the
+full-project audit below exits non-zero only on errors. For a whole-project audit, run:
 
 ```powershell
 cmd /c ".\tools\analyze_code.bat"
