@@ -227,4 +227,5 @@ tickets/
 /mac_signing.ini
 tmp/commit_msg.tmp
 code_analysis_results/
+tools/analyze_code_config.bat
 .reasonix/
