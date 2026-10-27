@@ -93,6 +93,46 @@ def has_staged_changes(cwd: Path) -> bool:
     return False
 
 
+def find_existing_tag(label: str, cwd: Path) -> str | None:
+    """Return where a git tag exists, or ``None`` when neither checked location has it."""
+    local_cmd = ["git", "rev-parse", "-q", "--verify", f"refs/tags/{label}"]
+    local_printable = " ".join(local_cmd)
+    try:
+        local_result = subprocess.run(
+            _resolve(local_cmd), cwd=cwd, capture_output=True, text=True
+        )
+    except OSError as e:
+        raise ReleaseCreateError(
+            f"Failed to start command '{local_printable}': {e}"
+        ) from e
+    if local_result.returncode == 0:
+        return "locally"
+    if local_result.returncode != 1:
+        _raise_on_failure(local_result.returncode, local_printable, local_result.stderr.strip())
+
+    remote_cmd = ["git", "ls-remote", "--exit-code", "--tags", "origin", f"refs/tags/{label}"]
+    try:
+        remote_result = subprocess.run(
+            _resolve(remote_cmd), cwd=cwd, capture_output=True, text=True
+        )
+    except OSError as e:
+        logger.warning("Could not check origin tags for %s: %s", label, e)
+        return None
+    if remote_result.returncode == 0:
+        return "on origin"
+    if remote_result.returncode == 2:
+        return None
+
+    detail = remote_result.stderr.strip()
+    logger.warning(
+        "Could not check origin tags for %s (exit %s)%s",
+        label,
+        remote_result.returncode,
+        f": {detail}" if detail else "",
+    )
+    return None
+
+
 def _raise_on_failure(returncode: int, printable: str, stderr: str = "") -> None:
     """Raise ReleaseCreateError for a non-zero exit, appending stderr if present."""
     if returncode != 0:

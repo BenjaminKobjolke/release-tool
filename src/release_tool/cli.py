@@ -121,6 +121,11 @@ def parse_create_args(args: list[str]) -> argparse.Namespace:
         "(and creates the GitHub Release) without asking",
     )
     parser.add_argument(
+        "--bump-if-tagged",
+        action="store_true",
+        help="Automatically catch up the version when the next release tag already exists",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Enable debug logging",
@@ -146,6 +151,7 @@ def run_create(args: list[str]) -> int:
             dry_run=parsed.dry_run,
             version_file=version_file,
             assume_yes=parsed.yes,
+            bump_if_tagged=parsed.bump_if_tagged,
         )
         return creator.create(internal=parsed.internal, keep_version_name=parsed.keep_version_name)
 

@@ -7,6 +7,7 @@ Windows-only, because it invokes `cmd /c call` on .bat files.
 """
 
 import logging
+import subprocess
 import sys
 from pathlib import Path
 
@@ -19,7 +20,12 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def _init_git_repo(root: Path) -> None:
+    subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+
+
 def _make_project(root: Path) -> None:
+    _init_git_repo(root)
     tools = root / "tools"
     tools.mkdir()
     (tools / "version_get.bat").write_text("@echo off\necho 1.0.0\n")
@@ -72,6 +78,7 @@ def test_create_missing_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 
 def _make_semver_project(root: Path) -> None:
     """A semver project: version_get prints a bare X.Y.Z, no build counter."""
+    _init_git_repo(root)
     tools = root / "tools"
     tools.mkdir()
     (tools / "get_version.bat").write_text("@echo off\necho 0.1.6\n")
@@ -109,6 +116,7 @@ def test_create_dry_run_semver_resolves(tmp_path: Path, monkeypatch: pytest.Monk
 
 def _make_self_contained_multichannel_project(root: Path) -> None:
     """A monolithic build bat (bump+translate+build) + two gated publish channels."""
+    _init_git_repo(root)
     tools = root / "tools"
     tools.mkdir()
     (tools / "version_get.bat").write_text("@echo off\necho 1.0.0\n")
@@ -140,6 +148,7 @@ def test_create_dry_run_self_contained_multichannel_resolves(
 
 
 def _make_version_name_project(root: Path) -> Path:
+    _init_git_repo(root)
     tools = root / "tools"
     tools.mkdir()
     (tools / "version_get.bat").write_text("@echo off\necho 1.1.0\n")

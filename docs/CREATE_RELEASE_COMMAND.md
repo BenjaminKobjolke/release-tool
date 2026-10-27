@@ -36,6 +36,9 @@ release-tool create --dry-run
 # Unattended: answer every publish/commit/GitHub prompt with yes
 release-tool create --yes
 
+# Unattended: move the version past an already tagged label
+release-tool create --yes --bump-if-tagged
+
 # Debug logging
 release-tool create --verbose
 ```
@@ -48,11 +51,12 @@ release-tool create --verbose
 | `--keep-version-name` | Skip the opt-in version-name bump for this run. |
 | `--dry-run` | Print the resolved label and the exact commands without running the mutating ones. |
 | `--yes`, `-y` | Answer every y/N prompt with yes: publishes to every channel, commits, tags, pushes and creates the GitHub Release without asking. Each auto-answer is logged. Combines with `--dry-run`. |
+| `--bump-if-tagged` | When the next shipping label already has a local or origin tag, run `build_increment` to catch up and check the recomputed label. Does not prompt. Cannot bump in a dry run or with `build_self_contained = true`. |
 | `--verbose` | Enable debug logging. |
 
 ## What it does
 
-1. **Compute the labels** — the *shipping* label (released now) and the *previous*
+1. **Compute and check the labels** — the *shipping* label (released now) and the *previous*
    label (the version currently online, used to name its backup). Both derive from
    one `version_get` read (a bare `1.0.0` or a full `1.0.0_21` are both accepted —
    a trailing `_<build>` is stripped), so they can't drift apart. How the shipping
@@ -64,8 +68,17 @@ release-tool create --verbose
    - `semver`: `previous = <version>`, `shipping = <version>` with its last dotted
      segment +1 (`0.1.6` → `0.1.7`) — `build_get` is not read.
 
-   Computed before anything mutates, so the notes folder targets the shipping label.
-   *Bump first, ship next: the counter/version holds the last shipped label.*
+   Before notes or any build/version mutation, check whether the shipping label is
+   already tagged locally and on `origin`. A local git-check error stops the run;
+   if the origin lookup fails, a warning is logged and the local result is used.
+   When a tag exists, a normal interactive run asks whether to increment and try
+   again. Answering `y` runs `build_increment` once and recomputes the labels;
+   answering `n` stops before notes and build work. `--bump-if-tagged` does this
+   automatically, including with `--yes`. `--yes` by itself stops on a conflict
+   instead of treating it as permission to skip an already released label. A dry
+   run and `build_self_contained = true` also stop on a conflict because `create`
+   cannot safely recompute a bumped label in those modes. The guard applies to
+   internal releases too.
 2. **Ensure release notes** (skipped with `--internal`). If
    `<notes_dir>/<label>/<en_file>` is missing, author it headlessly via
    `codex exec --dangerously-bypass-approvals-and-sandbox` (authors **only**
@@ -106,8 +119,11 @@ release-tool create --verbose
    [`docs/GITHUB_RELEASE_COMMAND.md`](GITHUB_RELEASE_COMMAND.md) for the
    underlying `github-release` subcommand.
 
-With `--yes` (or `-y`), these publish, commit/tag/push, and GitHub Release prompts are
-answered automatically and each answer is logged. Without it, the prompts remain interactive.
+With `--yes` (or `-y`), the publish, commit/tag/push, and GitHub Release prompts are
+answered automatically and each answer is logged. It does not answer an existing-tag
+conflict: use `--bump-if-tagged` to opt into an automatic catch-up, or the run stops.
+Without `--yes`, those prompts remain interactive; an existing-tag conflict asks for
+confirmation before changing the version.
 
 ## Versioning modes
 

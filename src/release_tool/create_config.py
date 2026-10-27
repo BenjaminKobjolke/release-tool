@@ -96,6 +96,15 @@ class CreateConfig:
     semver_patch_max: int | None = None
     version_file: Path = Path(DEFAULT_VERSION_FILE)
 
+    def effective_publish_channels(self) -> list[PublishChannel]:
+        """Return configured channels, supporting callers using the legacy bat field."""
+        if self.publish_channels:
+            return self.publish_channels
+        if self.bats.publish:
+            name = self.publish_platform or "the release target"
+            return [PublishChannel(name=name, bat=self.bats.publish)]
+        return []
+
     @classmethod
     def from_ini_file(cls, path: Path) -> "CreateConfig":
         """Load create configuration from an INI file."""

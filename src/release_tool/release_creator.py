@@ -10,10 +10,11 @@ from pathlib import Path
 
 from .bat_runner import bat_command, capture_command, has_staged_changes, run_command
 from .cli_support import confirm
-from .create_config import CreateConfig, PublishChannel
+from .create_config import CreateConfig
 from .exceptions import ReleaseCreateError, ReleaseToolError
 from .github_publisher import GitHubPublisher, render_notes_markdown
 from .release_labels import ReleaseLabels, VersionNameBump, bump_last_segment
+from .tag_guard import conflict_mode, ensure_free_label
 from .version_file import VersionFile
 
 logger = logging.getLogger(__name__)
@@ -32,27 +33,35 @@ class ReleaseCreator:
         dry_run: bool = False,
         version_file: VersionFile | None = None,
         assume_yes: bool = False,
+        bump_if_tagged: bool = False,
     ) -> None:
         self.config = config
         self.root = project_root
         self.dry_run = dry_run
         self.version_file = version_file
         self.assume_yes = assume_yes
+        self.bump_if_tagged = bump_if_tagged
 
     def create(self, internal: bool = False, keep_version_name: bool = False) -> bool:
         """Run the full release. Returns True on success."""
-        labels = self._compute_labels(
-            bump_name=self.version_file is not None and not internal and not keep_version_name
-        )
+        bump_name = self.version_file is not None and not internal and not keep_version_name
+        labels = self._compute_labels(bump_name=bump_name)
         logger.info(f"Next release label: {labels.shipping}")
+        mode = conflict_mode(
+            dry_run=self.dry_run, build_self_contained=self.config.build_self_contained,
+            bump_if_tagged=self.bump_if_tagged, yes=self.assume_yes
+        )
+
+        def catch_up() -> str:
+            nonlocal labels
+            labels = self._catch_up(bump_name)
+            return labels.shipping
+
+        ensure_free_label(labels.shipping, self.root, mode, catch_up)
 
         if not internal:
             self._ensure_notes(labels.notes)
 
-        # Bump first, ship next: the counter/version is now the about-to-ship
-        # label. If a later step fails, roll it back so it doesn't drift ahead.
-        # A self-contained build bat (a monolithic release script) already does
-        # its own bump/translate/rollback, so create must not repeat any of it.
         self_contained = self.config.build_self_contained
         if not self_contained:
             self._run_bat(self.config.bats.build_increment)
@@ -75,11 +84,7 @@ class ReleaseCreator:
                 self._run_bat(self.config.bats.build_decrement)
             raise
 
-        # Record the previous (online) version so the publish bat can name its
-        # backup folder — whether publish runs now or is run by hand later.
         self._write_previous_version(labels.previous)
-        # Two independent gates: shipping and recording the release are separate
-        # decisions, so declining one does not skip the other.
         self._maybe_publish(labels)
         if self._maybe_commit(labels.shipping, internal):
             self._maybe_github_release(labels, internal)
@@ -87,6 +92,11 @@ class ReleaseCreator:
 
     def _run_bat(self, bat_path: str) -> None:
         run_command(bat_command(bat_path), self.root, self.dry_run)
+
+    def _catch_up(self, bump_name: bool) -> ReleaseLabels:
+        """Advance once for a taken tag and recompute the labels before notes/build."""
+        self._run_bat(self.config.bats.build_increment)
+        return self._compute_labels(bump_name=bump_name)
 
     def _confirm(self, prompt: str) -> bool:
         """Ask ``prompt``, or answer yes without reading stdin under --yes."""
@@ -203,19 +213,9 @@ class ReleaseCreator:
         target.write_text(f"{previous}\n", encoding="utf-8")
         logger.info(f"Wrote previous version {previous!r} to {target}")
 
-    def _publish_channels(self) -> list[PublishChannel]:
-        """The configured publish gates: multi-channel config, or the legacy
-        single-bat fields for callers that construct CreateConfig directly."""
-        if self.config.publish_channels:
-            return self.config.publish_channels
-        if self.config.bats.publish:
-            name = self.config.publish_platform or "the release target"
-            return [PublishChannel(name=name, bat=self.config.bats.publish)]
-        return []
-
     def _maybe_publish(self, labels: ReleaseLabels) -> None:
         """Ask whether to publish each configured channel independently."""
-        channels = self._publish_channels()
+        channels = self.config.effective_publish_channels()
         if not channels:
             logger.info("No publish bat configured; skipping publish.")
             return

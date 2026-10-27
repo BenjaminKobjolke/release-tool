@@ -169,6 +169,9 @@ release-tool create --dry-run
 
 # Unattended: answer every publish/commit/GitHub prompt with yes
 release-tool create --yes
+
+# Unattended: catch up automatically if the next label is already tagged
+release-tool create --yes --bump-if-tagged
 ```
 
 The Codex notes step runs with stdin closed so it cannot wait on an inherited
@@ -177,7 +180,14 @@ flushed `::tw-input-line::` line so the Tickets app can display and answer it.
 
 ### What it does
 
-1. **Compute the next label** — `<version>_<build+1>` (build first, ship next).
+1. **Compute the next label and check its tag** — `<version>_<build+1>` (build
+   first, ship next). Before notes or build/version changes, `create` checks for
+   that tag locally and on `origin`. If it exists, an interactive run asks before
+   incrementing and checking again. A dry run, `--yes` alone, and
+   `build_self_contained = true` stop with a clear error on a conflict. Use
+   `--bump-if-tagged` to opt into an automatic catch-up; it also works with
+   `--yes`. An origin lookup failure logs a warning and continues with the local
+   check.
    Set `versioning = semver` to bump the version's last segment instead of a
    build counter (e.g. `0.1.6` → `0.1.7`) — see
    [`docs/CREATE_RELEASE_COMMAND.md`](docs/CREATE_RELEASE_COMMAND.md#versioning-modes).

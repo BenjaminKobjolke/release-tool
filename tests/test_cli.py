@@ -111,6 +111,14 @@ class TestParseCreateArgs:
         assert args.dry_run is True
         assert args.yes is True
 
+    def test_bump_if_tagged_flag(self) -> None:
+        assert parse_create_args(["cfg.ini"]).bump_if_tagged is False
+        assert parse_create_args(["cfg.ini", "--bump-if-tagged"]).bump_if_tagged is True
+
+        args = parse_create_args(["cfg.ini", "--yes", "--bump-if-tagged"])
+        assert args.yes is True
+        assert args.bump_if_tagged is True
+
 
 class TestRun:
     """Tests for run function."""

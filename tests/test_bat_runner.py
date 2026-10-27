@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from release_tool.bat_runner import has_staged_changes, run_command
+from release_tool.bat_runner import find_existing_tag, has_staged_changes, run_command
 from release_tool.exceptions import ReleaseCreateError
 
 
@@ -68,3 +68,92 @@ def test_has_staged_changes_wraps_process_start_errors(
 
     with pytest.raises(ReleaseCreateError, match="Failed to start"):
         has_staged_changes(tmp_path)
+
+
+@patch("release_tool.bat_runner.subprocess.run")
+def test_find_existing_tag_returns_local_hit_without_checking_origin(
+    mock_run: MagicMock, tmp_path: Path
+) -> None:
+    mock_run.return_value.returncode = 0
+
+    assert find_existing_tag("1.2.3", tmp_path) == "locally"
+
+    command = mock_run.call_args.args[0]
+    assert command[0].lower().endswith(("git", "git.exe"))
+    assert command[1:] == ["rev-parse", "-q", "--verify", "refs/tags/1.2.3"]
+    assert mock_run.call_args.kwargs == {
+        "cwd": tmp_path,
+        "capture_output": True,
+        "text": True,
+    }
+
+
+@patch("release_tool.bat_runner.subprocess.run")
+def test_find_existing_tag_returns_origin_hit(
+    mock_run: MagicMock, tmp_path: Path
+) -> None:
+    mock_run.side_effect = [
+        MagicMock(returncode=1, stderr=""),
+        MagicMock(returncode=0, stdout="abc123\trefs/tags/1.2.3\n"),
+    ]
+
+    assert find_existing_tag("1.2.3", tmp_path) == "on origin"
+
+    local_command = mock_run.call_args_list[0].args[0]
+    remote_command = mock_run.call_args_list[1].args[0]
+    assert local_command[0].lower().endswith(("git", "git.exe"))
+    assert local_command[1:] == ["rev-parse", "-q", "--verify", "refs/tags/1.2.3"]
+    assert remote_command[0].lower().endswith(("git", "git.exe"))
+    assert remote_command[1:] == [
+        "ls-remote",
+        "--exit-code",
+        "--tags",
+        "origin",
+        "refs/tags/1.2.3",
+    ]
+
+
+@patch("release_tool.bat_runner.subprocess.run")
+def test_find_existing_tag_returns_none_when_missing_locally_and_on_origin(
+    mock_run: MagicMock, tmp_path: Path
+) -> None:
+    mock_run.side_effect = [
+        MagicMock(returncode=1, stderr=""),
+        MagicMock(returncode=2, stderr=""),
+    ]
+
+    assert find_existing_tag("1.2.3", tmp_path) is None
+
+
+@patch("release_tool.bat_runner.subprocess.run")
+def test_find_existing_tag_warns_and_continues_when_origin_check_fails(
+    mock_run: MagicMock, caplog: pytest.LogCaptureFixture, tmp_path: Path
+) -> None:
+    mock_run.side_effect = [
+        MagicMock(returncode=1, stderr=""),
+        MagicMock(returncode=128, stderr="network unavailable"),
+    ]
+
+    assert find_existing_tag("1.2.3", tmp_path) is None
+    assert "Could not check origin tags" in caplog.text
+
+
+@patch("release_tool.bat_runner.subprocess.run")
+def test_find_existing_tag_raises_when_local_git_check_fails(
+    mock_run: MagicMock, tmp_path: Path
+) -> None:
+    mock_run.return_value.returncode = 128
+    mock_run.return_value.stderr = "not a repository"
+
+    with pytest.raises(ReleaseCreateError, match="exit 128"):
+        find_existing_tag("1.2.3", tmp_path)
+
+
+@patch("release_tool.bat_runner.subprocess.run")
+def test_find_existing_tag_warns_and_continues_when_origin_cannot_start(
+    mock_run: MagicMock, caplog: pytest.LogCaptureFixture, tmp_path: Path
+) -> None:
+    mock_run.side_effect = [MagicMock(returncode=1, stderr=""), OSError("missing git")]
+
+    assert find_existing_tag("1.2.3", tmp_path) is None
+    assert "Could not check origin tags" in caplog.text
