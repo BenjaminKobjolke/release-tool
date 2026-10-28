@@ -47,13 +47,22 @@ class _FTPServer(socketserver.ThreadingTCPServer):
 
 def _profiles(port: int, *, only_good: bool = False) -> str:
     sections = [
-        f"[good]\nhost = 127.0.0.1\nport = {port}\nusername = user\npassword = good-password\nremote_path = /ok\n"
+        (
+            f"[good]\nhost = 127.0.0.1\nport = {port}\n"
+            "username = user\npassword = good-password\nremote_path = /ok\n"
+        )
     ]
     if not only_good:
         sections.extend(
             [
-                f"[wrong-password]\nhost = 127.0.0.1\nport = {port}\nusername = user\npassword = bad-password\nremote_path = /ok\n",
-                f"[missing-folder]\nhost = 127.0.0.1\nport = {port}\nusername = user\npassword = good-password\nremote_path = /missing\n",
+                (
+                    f"[wrong-password]\nhost = 127.0.0.1\nport = {port}\n"
+                    "username = user\npassword = bad-password\nremote_path = /ok\n"
+                ),
+                (
+                    f"[missing-folder]\nhost = 127.0.0.1\nport = {port}\n"
+                    "username = user\npassword = good-password\nremote_path = /missing\n"
+                ),
             ]
         )
     return "\n".join(sections)

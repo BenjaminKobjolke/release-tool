@@ -1,5 +1,6 @@
 """Tests for signing and notarizing macOS apps and disk images."""
 
+from contextlib import AbstractContextManager
 import logging
 from pathlib import Path
 from unittest.mock import patch
@@ -12,10 +13,19 @@ from release_tool.mac_sign import MacSigner
 
 
 def make_config() -> MacSignConfig:
-    return MacSignConfig(app_identity="Developer ID Application: Example", keychain_profile="profile")
+    return MacSignConfig(
+        app_identity="Developer ID Application: Example",
+        keychain_profile="profile",
+    )
 
 
-def patched_commands(events: list[str], commands: list[list[str]], submissions: list[str]):
+def patched_commands(
+    events: list[str], commands: list[list[str]], submissions: list[str]
+) -> tuple[
+    AbstractContextManager[object],
+    AbstractContextManager[object],
+    AbstractContextManager[object],
+]:
     def record_run(command: list[str], cwd: Path, dry_run: bool = False) -> None:
         commands.append(command)
         events.append(command[0] if command[:2] != ["xcrun", "stapler"] else command[2])
