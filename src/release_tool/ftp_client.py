@@ -3,6 +3,8 @@
 import contextlib
 import ftplib
 import logging
+import re
+import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -12,6 +14,12 @@ from .config import FTPConfig
 from .exceptions import FTPError
 
 logger = logging.getLogger(__name__)
+_LIMIT_RETRIES = 6
+_LIMIT_RETRY_DELAY = 30
+_CONNECTION_LIMIT = re.compile(
+    r"^421|maximum number of (connections|clients)|too many (connections|users)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -34,11 +42,9 @@ class FTPClient:
         self._ftp: ftplib.FTP | None = None
 
     def connect(self) -> None:
-        """Establish FTP connection and navigate to remote path."""
+        """Establish an FTP connection with bounded retries for connection-limit refusals."""
         try:
-            self._ftp = ftplib.FTP()
-            self._ftp.connect(self.config.host, self.config.port)
-            self._ftp.login(self.config.username, self.config.password)
+            self._ftp = self._open_logged_in()
 
             if self.config.remote_path and self.config.remote_path != "/":
                 logger.debug(f"Changing to remote path: {self.config.remote_path}")
@@ -53,8 +59,39 @@ class FTPClient:
             logger.info(f"Connected to FTP server: {self.config.host}:{self.config.port}")
             logger.debug(f"Current working directory: {cwd}")
 
+        except FTPError:
+            raise
         except (ftplib.Error, OSError, EOFError) as e:
             raise FTPError(f"Failed to connect to FTP server: {e}") from e
+
+    def _open_logged_in(self) -> ftplib.FTP:
+        """Open and log in, retrying only server connection-limit refusals."""
+        for attempt in range(1, _LIMIT_RETRIES + 1):
+            ftp = ftplib.FTP()
+            try:
+                ftp.connect(self.config.host, self.config.port)
+                ftp.login(self.config.username, self.config.password)
+                return ftp
+            except ftplib.Error as e:
+                self._close(ftp)
+                if not _CONNECTION_LIMIT.search(str(e)):
+                    raise
+                if attempt == _LIMIT_RETRIES:
+                    raise FTPError(
+                        "FTP server connection limit still reached after "
+                        f"{_LIMIT_RETRIES} attempts: {e}"
+                    ) from e
+
+                logger.warning(
+                    f"FTP connection limit reached (attempt {attempt}/{_LIMIT_RETRIES}), "
+                    f"retrying in {_LIMIT_RETRY_DELAY}s: {e}"
+                )
+                time.sleep(_LIMIT_RETRY_DELAY)
+            except (OSError, EOFError):
+                self._close(ftp)
+                raise
+
+        raise AssertionError("FTP retry loop exited without returning or raising")
 
     def disconnect(self) -> None:
         """Close FTP connection gracefully."""
