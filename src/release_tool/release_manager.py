@@ -5,11 +5,12 @@ from pathlib import Path
 
 from .cli_support import confirm
 from .config import OldFilePolicy, ReleaseConfig
+from .exceptions import ConfigurationError
 from .ftp_client import FTPClient
 from .old_file_handler import create_handler
-from .pre_signer import PreSignConfig, PreSignMethod, PreSigner
-from .remote_pre_signer import RemotePreSigner
+from .pre_signer import PreSignConfig, PreSigner, PreSignMethod
 from .release_notes_uploader import ReleaseNotesUploader
+from .remote_pre_signer import RemotePreSigner
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,11 @@ class ReleaseManager:
 
     def _remote_name(self, file_path: Path, override: str | None) -> str:
         """The name the file gets on the server — override, configured, else local."""
+        if override and ("/" in override or "\\" in override):
+            raise ConfigurationError(
+                "remote_filename must be a bare filename, not a path: "
+                f"{override}. Put the directory in remote_path."
+            )
         return override or self.config.ftp.remote_filename or file_path.name
 
     def _dry_run_release(self, file_path: Path, remote_name: str) -> bool:
