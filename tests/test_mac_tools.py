@@ -16,11 +16,15 @@ def test_check_notarization_accepts_accepted_result() -> None:
 
 
 def test_check_notarization_fetches_log_and_rejects(tmp_path: Path, caplog) -> None:
-    with patch(
-        "release_tool.mac_tools.capture_command", autospec=True, return_value="Apple issue details"
-    ) as capture:
-        with pytest.raises(MacPackageError, match="bad-id"):
-            check_notarization('{"status":"Invalid","id":"bad-id"}', "profile", tmp_path)
+    with (
+        patch(
+            "release_tool.mac_tools.capture_command",
+            autospec=True,
+            return_value="Apple issue details",
+        ) as capture,
+        pytest.raises(MacPackageError, match="bad-id"),
+    ):
+        check_notarization('{"status":"Invalid","id":"bad-id"}', "profile", tmp_path)
 
     capture.assert_called_once_with(
         ["xcrun", "notarytool", "log", "bad-id", "--keychain-profile", "profile"],
@@ -30,13 +34,15 @@ def test_check_notarization_fetches_log_and_rejects(tmp_path: Path, caplog) -> N
 
 
 def test_check_notarization_log_failure_preserves_rejection(tmp_path: Path) -> None:
-    with patch(
-        "release_tool.mac_tools.capture_command",
-        autospec=True,
-        side_effect=ReleaseToolError("log unavailable"),
+    with (
+        patch(
+            "release_tool.mac_tools.capture_command",
+            autospec=True,
+            side_effect=ReleaseToolError("log unavailable"),
+        ),
+        pytest.raises(MacPackageError, match="bad-id"),
     ):
-        with pytest.raises(MacPackageError, match="bad-id"):
-            check_notarization('{"status":"Invalid","id":"bad-id"}', "profile", tmp_path)
+        check_notarization('{"status":"Invalid","id":"bad-id"}', "profile", tmp_path)
 
 
 def test_check_notarization_rejects_malformed_json(tmp_path: Path) -> None:

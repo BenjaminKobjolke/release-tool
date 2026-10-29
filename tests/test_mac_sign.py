@@ -1,7 +1,7 @@
 """Tests for signing and notarizing macOS apps and disk images."""
 
-from contextlib import AbstractContextManager
 import logging
+from contextlib import AbstractContextManager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -170,9 +170,11 @@ def test_notarization_rejection_does_not_staple(tmp_path: Path) -> None:
 def test_unknown_suffix_fails_without_commands(tmp_path: Path, suffix: str) -> None:
     target = tmp_path / f"artifact{suffix}"
     target.touch()
-    with patch("release_tool.mac_sign.run_command", autospec=True) as run:
-        with pytest.raises(MacPackageError, match=".app.*.dmg"):
-            MacSigner(make_config()).sign(target)
+    with (
+        patch("release_tool.mac_sign.run_command", autospec=True) as run,
+        pytest.raises(MacPackageError, match=".app.*.dmg"),
+    ):
+        MacSigner(make_config()).sign(target)
     run.assert_not_called()
 
 
@@ -241,9 +243,11 @@ def test_default_entitlements_used_and_missing_custom_file_rejected(tmp_path: Pa
         MacSigner(make_config()).sign(app)
 
     assert commands[0][commands[0].index("--entitlements") + 1] == str(DEFAULT_ENTITLEMENTS)
-    with patch("release_tool.mac_tools.sys.platform", "darwin"):
-        with pytest.raises(MacPackageError, match="entitlements"):
-            MacSigner(make_config()).sign(app, tmp_path / "missing.plist")
+    with (
+        patch("release_tool.mac_tools.sys.platform", "darwin"),
+        pytest.raises(MacPackageError, match="entitlements"),
+    ):
+        MacSigner(make_config()).sign(app, tmp_path / "missing.plist")
 
 
 def test_entitlements_for_dmg_are_ignored(tmp_path: Path, caplog) -> None:
