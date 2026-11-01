@@ -19,21 +19,11 @@ if (-not (Test-Path -LiteralPath $PromptFile -PathType Leaf)) {
 
 $prompt = Get-Content -LiteralPath $PromptFile -Raw -Encoding UTF8
 
-$executable = if ($Backend -eq 'codex') { 'codex' } else { 'reasonix' }
-$command = Get-Command -Name $executable -CommandType Application -ErrorAction SilentlyContinue
-if ($null -eq $command) {
-    Write-Error "required executable not found: $executable"
-    exit 127
-}
-
-$exitCode = 0
-$LASTEXITCODE = 0
 if ($Backend -eq 'codex') {
-    & $command.Source exec --dangerously-bypass-approvals-and-sandbox $prompt *> $LogFile
+    & codex exec --dangerously-bypass-approvals-and-sandbox $prompt *> $LogFile
 }
 else {
-    & $command.Source run --auto $prompt *> $LogFile
+    & reasonix run --auto $prompt *> $LogFile
 }
-$exitCode = $LASTEXITCODE
 
-exit $exitCode
+exit $LASTEXITCODE
