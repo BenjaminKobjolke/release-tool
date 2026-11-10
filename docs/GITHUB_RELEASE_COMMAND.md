@@ -46,6 +46,10 @@ None of `--notes`/`--notes-file`/`--notes-json` given → `gh --generate-notes`
 3. **Idempotent re-run:** if `gh` reports the release already exists, fall back to
    `gh release upload <tag> <assets...> --clobber` — re-uploading the assets over
    the existing release. Notes/title are not rewritten on re-run.
+4. **Network error:** check the remote release once. If it exists, re-upload the
+   assets and publish it if it is still a draft; if it is missing, retry creation
+   once. A failure includes a command to publish the existing build without
+   rebuilding.
 
 ## Example
 

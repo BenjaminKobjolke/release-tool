@@ -5,8 +5,10 @@ calls elsewhere in this project) so the package stays dependency-free — no
 ``requests``/``PyGithub``, ``gh`` owns auth via ``gh auth login``.
 """
 
-import json
 import logging
+import os
+import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -14,10 +16,35 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .exceptions import GitHubReleaseError
+from .github_release_notes import render_notes_markdown
 
 logger = logging.getLogger(__name__)
 
 _ALREADY_EXISTS_MARKER = "already exists"
+_NOT_FOUND_MARKER = "release not found"
+_NETWORK_ERROR_MARKERS = (
+    "timeout",
+    "timed out",
+    "connection reset",
+    "connection refused",
+    "connection attempt failed",
+    "wsarecv",
+    "wsasend",
+    "dial tcp",
+    "read tcp",
+    "write tcp",
+    "unexpected eof",
+    "tls handshake",
+)
+_HTTP_5XX = re.compile(r"http 5\d\d", re.IGNORECASE)
+
+
+def _is_network_error(stderr: str) -> bool:
+    """Return whether a gh error looks transient and safe to reconcile remotely."""
+    lowered = stderr.lower()
+    return _HTTP_5XX.search(stderr) is not None or any(
+        marker in lowered for marker in _NETWORK_ERROR_MARKERS
+    )
 
 
 @dataclass
@@ -37,28 +64,6 @@ class GitHubReleaseConfig:
     title_format: str = "{label}"
 
 
-def render_notes_markdown(en_json_path: Path) -> str:
-    """Render an XIDA release-notes ``en.json`` (``title`` + ``notes: [...]``) as markdown."""
-    if not en_json_path.exists():
-        raise GitHubReleaseError(f"Release notes file not found: {en_json_path}")
-
-    try:
-        data = json.loads(en_json_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as e:
-        raise GitHubReleaseError(f"Failed to read release notes {en_json_path}: {e}") from e
-
-    title = data.get("title")
-    notes = data.get("notes")
-    if not isinstance(title, str) or not isinstance(notes, list):
-        raise GitHubReleaseError(
-            f"{en_json_path} must have a string 'title' and a list 'notes'"
-        )
-
-    lines = [f"# {title}", ""]
-    lines.extend(f"- {item}" for item in notes)
-    return "\n".join(lines) + "\n"
-
-
 class GitHubPublisher:
     """Creates (or updates) a GitHub Release for a pushed tag via the ``gh`` CLI."""
 
@@ -73,6 +78,7 @@ class GitHubPublisher:
         title: str | None = None,
         notes: str | None = None,
         notes_file: Path | None = None,
+        notes_json: Path | None = None,
         cwd: Path | None = None,
         dry_run: bool = False,
     ) -> None:
@@ -97,7 +103,11 @@ class GitHubPublisher:
             raise GitHubReleaseError(f"Asset not found: {asset}")
 
         cleanup_notes_file: Path | None = None
+        original_notes = notes
+        original_notes_file = notes_file
         try:
+            if notes_json is not None and notes is None and notes_file is None:
+                notes = render_notes_markdown(notes_json)
             if notes is not None and notes_file is None:
                 notes_file = cleanup_notes_file = self._write_temp_notes(notes)
 
@@ -107,8 +117,37 @@ class GitHubPublisher:
                 logger.info(f"[DRY RUN] Would run: {' '.join(str(a) for a in argv)}")
                 return
 
+            try:
+                self._create_or_recover(tag, assets, argv, cwd=cwd)
+            except GitHubReleaseError as error:
+                hint = self._recovery_command(
+                    tag,
+                    assets,
+                    title,
+                    notes_json,
+                    original_notes,
+                    original_notes_file,
+                    cwd,
+                )
+                raise GitHubReleaseError(
+                    f"{error}\nPublish the existing build without rebuilding: {hint}"
+                ) from error
+        finally:
+            if cleanup_notes_file is not None:
+                cleanup_notes_file.unlink(missing_ok=True)
+
+    def _create_or_recover(
+        self,
+        tag: str,
+        assets: list[Path],
+        create_argv: list[str],
+        *,
+        cwd: Path | None,
+    ) -> None:
+        """Create once, reconciling remote state before the one network retry."""
+        for attempt in range(2):
             logger.info(f"Creating GitHub Release {tag}")
-            result = subprocess.run(argv, cwd=cwd, capture_output=True, text=True)
+            result = subprocess.run(create_argv, cwd=cwd, capture_output=True, text=True)
 
             if result.returncode == 0:
                 logger.info(f"GitHub Release {tag} created.")
@@ -119,10 +158,32 @@ class GitHubPublisher:
                 self._upload_assets(tag, assets, cwd=cwd)
                 return
 
-            raise GitHubReleaseError(f"gh release create failed: {self._last_line(result.stderr)}")
-        finally:
-            if cleanup_notes_file is not None:
-                cleanup_notes_file.unlink(missing_ok=True)
+            if attempt == 1 or not _is_network_error(result.stderr):
+                raise GitHubReleaseError(
+                    f"gh release create failed: {self._last_line(result.stderr)}"
+                )
+
+            logger.warning(
+                f"GitHub Release {tag} creation failed: {self._last_line(result.stderr)}; "
+                "checking remote state."
+            )
+            try:
+                is_draft = self._release_is_draft(tag, cwd=cwd)
+            except GitHubReleaseError as error:
+                raise GitHubReleaseError(
+                    f"gh release create failed: {self._last_line(result.stderr)}"
+                ) from error
+
+            if is_draft is None:
+                continue
+
+            self._upload_assets(tag, assets, cwd=cwd)
+            if is_draft:
+                self._publish_draft(tag, cwd=cwd)
+            logger.info(f"Recovered GitHub Release {tag} after a network error.")
+            return
+
+        raise AssertionError("The GitHub release retry loop exited unexpectedly")
 
     def _build_create_argv(
         self,
@@ -138,9 +199,75 @@ class GitHubPublisher:
             argv += ["--notes-file", str(notes_file)]
         else:
             argv += ["--generate-notes"]
+        return argv + self._repo_args()
+
+    def _release_is_draft(self, tag: str, *, cwd: Path | None) -> bool | None:
+        """Return the remote release's draft state, or None when the tag is absent."""
+        argv = ["gh", "release", "view", tag, "--json", "isDraft", "--jq", ".isDraft"]
+        result = subprocess.run(
+            argv + self._repo_args(), cwd=cwd, capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            if _NOT_FOUND_MARKER in result.stderr.lower():
+                return None
+            raise GitHubReleaseError(
+                f"gh release view failed: {self._last_line(result.stderr)}"
+            )
+
+        value = result.stdout.strip().lower()
+        if value == "true":
+            return True
+        if value == "false":
+            return False
+        raise GitHubReleaseError(f"gh release view returned an invalid draft state: {value!r}")
+
+    def _publish_draft(self, tag: str, *, cwd: Path | None) -> None:
+        """Publish an existing draft release."""
+        argv = ["gh", "release", "edit", tag, "--draft=false"]
+        result = subprocess.run(
+            argv + self._repo_args(), cwd=cwd, capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            raise GitHubReleaseError(
+                f"gh release edit failed: {self._last_line(result.stderr)}"
+            )
+
+    def _repo_args(self) -> list[str]:
         if self.config.repo:
-            argv += ["--repo", self.config.repo]
-        return argv
+            return ["--repo", self.config.repo]
+        return []
+
+    def _recovery_command(
+        self,
+        tag: str,
+        assets: list[Path],
+        title: str | None,
+        notes_json: Path | None,
+        notes: str | None,
+        notes_file: Path | None,
+        cwd: Path | None,
+    ) -> str:
+        """Build a repeatable command to publish this already-built release."""
+        argv = [
+            "release-tool",
+            "github-release",
+            tag,
+            *[str(asset) for asset in assets],
+            "--title",
+            title or tag,
+        ]
+        if notes_file is not None:
+            argv += ["--notes-file", str(notes_file)]
+        elif notes_json is not None and notes is None:
+            argv += ["--notes-json", str(notes_json)]
+        elif notes is not None:
+            argv += ["--notes", notes]
+        argv += self._repo_args()
+
+        command = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
+        if cwd is not None:
+            command += f" (run from {cwd})"
+        return command
 
     def _upload_assets(self, tag: str, assets: list[Path], *, cwd: Path | None) -> None:
         """Idempotent re-run: the release exists, so re-upload assets over it.
@@ -149,8 +276,7 @@ class GitHubPublisher:
         # here if editing notes on re-run is ever needed.
         """
         argv = ["gh", "release", "upload", tag, *[str(a) for a in assets], "--clobber"]
-        if self.config.repo:
-            argv += ["--repo", self.config.repo]
+        argv += self._repo_args()
         result = subprocess.run(argv, cwd=cwd, capture_output=True, text=True)
         if result.returncode != 0:
             raise GitHubReleaseError(f"gh release upload failed: {self._last_line(result.stderr)}")

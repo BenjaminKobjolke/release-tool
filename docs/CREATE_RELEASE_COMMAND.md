@@ -114,7 +114,9 @@ release-tool create --verbose
    a `[GitHubRelease]` section present and `enabled = true`, asked
    `Create GitHub Release <tag>? [y/N]`. `y` → uploads `assets` (via the `gh` CLI)
    to a release for the just-pushed tag, rendering `en.json` as the release notes
-   (skipped for `--internal`). No `[GitHubRelease]` section, `enabled = false`, or
+   (skipped for `--internal`). A network error triggers one remote-state check and
+   retry; a final failure includes a no-rebuild recovery command. No
+   `[GitHubRelease]` section, `enabled = false`, or
    step 8 declined → skipped. See
    [`docs/GITHUB_RELEASE_COMMAND.md`](GITHUB_RELEASE_COMMAND.md) for the
    underlying `github-release` subcommand.

@@ -127,10 +127,12 @@ class TestVersionNameBump:
             patch("release_tool.release_creator.run_command", side_effect=self.bats(version_file)),
             patch("release_tool.release_creator.confirm", return_value=True),
             patch("release_tool.release_creator.GitHubPublisher") as publisher,
-            patch("release_tool.release_creator.render_notes_markdown", return_value="notes"),
         ):
             ReleaseCreator(config, tmp_path, version_file=version_file).create()
         assert publisher.return_value.publish.call_args.args[0] == "v1.1.1+1360"
+        assert publisher.return_value.publish.call_args.kwargs["notes_json"] == (
+            tmp_path / "release_notes" / "1360" / "en.json"
+        )
 
     def test_github_release_formats_asset_paths(self, tmp_path: Path) -> None:
         version_file = self.version_file(tmp_path)
@@ -143,7 +145,6 @@ class TestVersionNameBump:
             patch("release_tool.release_creator.run_command", side_effect=self.bats(version_file)),
             patch("release_tool.release_creator.confirm", return_value=True),
             patch("release_tool.release_creator.GitHubPublisher") as publisher,
-            patch("release_tool.release_creator.render_notes_markdown", return_value="notes"),
         ):
             ReleaseCreator(config, tmp_path, version_file=version_file).create()
         assets = publisher.return_value.publish.call_args.args[1]

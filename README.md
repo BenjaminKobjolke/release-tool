@@ -260,6 +260,9 @@ opt-in gate inside `create` via a `[GitHubRelease]` section in `release_create.i
 (`enabled`, `assets`, `repo`, `tag_format`, `title_format` — see
 `examples/release_create.ini`).
 
+Network errors trigger one remote-state check and a safe retry; if publishing still
+fails, the error includes a command to publish the existing build without rebuilding.
+
 ## Build and upload an Android APK (`android` subcommand)
 
 Bumps the build number in `pubspec.yaml`, runs the Flutter build, verifies the

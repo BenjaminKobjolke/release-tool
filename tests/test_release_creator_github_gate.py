@@ -129,6 +129,9 @@ class TestGitHubReleaseGate:
         publish_call = mock_publisher_class.return_value.publish.call_args
         assert publish_call.args[0] == "v1.0.0_22"
         assert publish_call.args[1] == [tmp_path / "target" / "app.exe"]
+        assert publish_call.kwargs["notes_json"] == (
+            tmp_path / "release_notes" / "1.0.0_22" / "en.json"
+        )
         assert publish_call.kwargs["cwd"] == tmp_path
 
     @patch("release_tool.release_creator.GitHubPublisher")
@@ -152,6 +155,6 @@ class TestGitHubReleaseGate:
         creator.create(internal=True)
 
         publish_call = mock_publisher_class.return_value.publish.call_args
-        assert publish_call.kwargs["notes"] is None
+        assert publish_call.kwargs["notes_json"] is None
 
 

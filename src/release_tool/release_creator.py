@@ -12,7 +12,7 @@ from .bat_runner import bat_command, capture_command, has_staged_changes, run_co
 from .cli_support import confirm
 from .create_config import CreateConfig
 from .exceptions import ReleaseCreateError, ReleaseToolError
-from .github_publisher import GitHubPublisher, render_notes_markdown
+from .github_publisher import GitHubPublisher
 from .release_labels import ReleaseLabels, VersionNameBump, bump_last_segment
 from .tag_guard import conflict_mode, ensure_free_label
 from .version_file import VersionFile
@@ -274,14 +274,19 @@ class ReleaseCreator:
 
         # Asset paths take the same placeholders, for versioned artifact names.
         assets = [self.root / self._format_label(asset, labels) for asset in cfg.assets]
-        notes = None
+        notes_path = None
         if not internal:
             notes_path = self.root / self.config.notes_dir / labels.notes / self.config.en_file
-            if notes_path.exists():
-                notes = render_notes_markdown(notes_path)
+            if not notes_path.exists():
+                notes_path = None
 
         GitHubPublisher(cfg).publish(
-            tag, assets, title=title, notes=notes, cwd=self.root, dry_run=self.dry_run
+            tag,
+            assets,
+            title=title,
+            notes_json=notes_path,
+            cwd=self.root,
+            dry_run=self.dry_run,
         )
 
     @staticmethod

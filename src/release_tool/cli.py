@@ -13,7 +13,7 @@ from .cli_support import guarded, setup_logging
 from .cli_sync import run_sync
 from .config import ReleaseConfig
 from .create_config import CreateConfig
-from .github_publisher import GitHubPublisher, GitHubReleaseConfig, render_notes_markdown
+from .github_publisher import GitHubPublisher, GitHubReleaseConfig
 from .release_creator import ReleaseCreator
 from .release_manager import ReleaseManager
 from .version_file import VersionFile
@@ -197,14 +197,14 @@ def run_github_release(args: list[str]) -> int:
     logger = logging.getLogger(__name__)
 
     def action() -> bool:
-        notes = render_notes_markdown(parsed.notes_json) if parsed.notes_json else parsed.notes
         config = GitHubReleaseConfig(enabled=True, repo=parsed.repo)
         GitHubPublisher(config).publish(
             parsed.tag,
             parsed.assets,
             title=parsed.title,
-            notes=notes,
+            notes=parsed.notes,
             notes_file=parsed.notes_file,
+            notes_json=parsed.notes_json,
             dry_run=parsed.dry_run,
         )
         return True
